@@ -1008,3 +1008,11 @@
 	Sheet Books to PDF...	Книги листов в PDF...
 	Not a number or distance: {text}	Не число и не расстояние: {text}
 	Query Texts	Запрос текстов
+# Drawing history (the OMNI toolkit).
+	Drawing History	История чертежа
+	Save Snapshot	Сохранить снимок
+	Snapshot History...	История снимков...
+	Compare with Snapshot	Сравнить со снимком
+	Show/Hide Snapshot	Показать/скрыть снимок
+	Clear Snapshot Overlay	Убрать наложение снимка
+	Add Note	Добавить примечание

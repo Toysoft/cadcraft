@@ -212,17 +212,17 @@ fn objects<'a>(d: &'a Drawing, space: &Space, truncated: &mut bool) -> Vec<Obj<'
 }
 
 /// What differs between two drawings' spaces.
-struct Diff {
-    added: Vec<Handle>,
-    removed: Vec<Handle>,
+pub(crate) struct Diff {
+    pub added: Vec<Handle>,
+    pub removed: Vec<Handle>,
     /// (here, there, geometry differs, properties differ).
-    changed: Vec<(Handle, Handle, bool, bool)>,
-    common: usize,
-    truncated: bool,
+    pub changed: Vec<(Handle, Handle, bool, bool)>,
+    pub common: usize,
+    pub truncated: bool,
 }
 
 /// Compare `cur`'s `space` with the same space of `other`.
-fn diff(cur: &Drawing, other: &Drawing, space: &Space) -> Diff {
+pub(crate) fn diff(cur: &Drawing, other: &Drawing, space: &Space) -> Diff {
     let mut truncated = false;
     let a = objects(cur, space, &mut truncated);
     let b = objects(other, space, &mut truncated);
@@ -309,6 +309,23 @@ fn listed(d: &Drawing, hs: &[Handle]) -> Vec<Value> {
     hs.iter().take(MAX_LISTED).filter_map(|h| d.entity(*h)).map(|e| json!({ "handle": e.handle.hex(), "type": e.kind.type_name() })).collect()
 }
 
+/// The areas holding the differences of `d` between `cur` and `other`, in reading order.
+pub(crate) fn diff_regions(cur: &Drawing, other: &Drawing, d: &Diff) -> Vec<Bounds2> {
+    let mut boxes = Vec::new();
+    let mut bound = |x: &Drawing, h: Handle| {
+        if let Some(b) = x.entity(h).map(|e| entity_bounds(x, e, 0)).filter(|b| !b.is_empty() && b.min.is_finite() && b.max.is_finite()) {
+            boxes.push(b);
+        }
+    };
+    d.added.iter().for_each(|h| bound(cur, *h));
+    d.removed.iter().for_each(|h| bound(other, *h));
+    for (a, b, _, _) in &d.changed {
+        bound(cur, *a);
+        bound(other, *b);
+    }
+    regions(&boxes)
+}
+
 fn run_compare(s: &mut Session, p: &Value) -> Result<Value> {
     let (other, name) = other_drawing(s, p)?;
     let st = s.state()?;
@@ -316,20 +333,9 @@ fn run_compare(s: &mut Session, p: &Value) -> Result<Value> {
     if Arc::ptr_eq(&cur, &other) {
         return Err(bad("compare", "a drawing can't be compared with itself"));
     }
-    let Diff { added, removed, changed, common, truncated } = diff(&cur, &other, &space);
-    let mut boxes = Vec::new();
-    let mut bound = |d: &Drawing, h: Handle| {
-        if let Some(b) = d.entity(h).map(|e| entity_bounds(d, e, 0)).filter(|b| !b.is_empty() && b.min.is_finite() && b.max.is_finite()) {
-            boxes.push(b);
-        }
-    };
-    added.iter().for_each(|h| bound(&cur, *h));
-    removed.iter().for_each(|h| bound(&other, *h));
-    for (a, b, _, _) in &changed {
-        bound(&cur, *a);
-        bound(&other, *b);
-    }
-    let regions = regions(&boxes);
+    let d = diff(&cur, &other, &space);
+    let regions = diff_regions(&cur, &other, &d);
+    let Diff { added, removed, changed, common, truncated } = d;
     let ch: Vec<Value> = changed
         .iter()
         .take(MAX_LISTED)

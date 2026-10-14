@@ -61,3 +61,8 @@ sync_github_name = false
 real_name = "Chester Fung"
 display_name = "Chester Fung"
 sync_github_name = true
+
+[people.kostyk348]
+real_name = "Konstantin Parashchuk"
+display_name = "Konstantin Parashchuk"
+sync_github_name = false

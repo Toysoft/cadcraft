@@ -1330,3 +1330,11 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+# Drawing history (the OMNI toolkit).
+	Drawing History	Історія креслення
+	Save Snapshot	Зберегти знімок
+	Snapshot History...	Історія знімків...
+	Compare with Snapshot	Порівняти зі знімком
+	Show/Hide Snapshot	Показати/сховати знімок
+	Clear Snapshot Overlay	Прибрати накладення знімка
+	Add Note	Додати примітку

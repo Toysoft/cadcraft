@@ -108,6 +108,7 @@ numbers):
 | Annotation | All DIM* commands with full DIMSTYLE variables, overrides and every arrowhead, associative dimensions that follow geometry, MLEADER, TABLE, TrueType fonts (`.ttf`, `.otf`, `.ttc` collections), MTEXT formatting codes (fonts, heights, colours, stacked fractions), our own single-stroke drafting font |
 | Hatch & blocks | Pick-point hatch boundaries with islands, pattern, solid and gradient fills from our own pattern library, BLOCK/INSERT, attributes and nested blocks |
 | Files | DXF read (R12–2018, ASCII and binary) and write (R2000), including dimension styles, associativity, tables and constraints; DWG read (via the acadrust library) and write (R2000); PDF plotting, SVG and PNG export. Entities CADCraft doesn't model yet are not kept on save: see [file-format parity](docs/file-format-parity.md) |
+| Drawing history | OMNI-SNAP, OMNI-LOG, OMNI-DIFF, OMNI-TOGGLE, OMNI-CLEAR, OMNI-NOTE: revision snapshots in `_OMNI_HISTORY` next to the drawing (DXF and DWG alike), a recoloured overlay of an older revision under the current one, a change report, and spatial notes; [details](docs/drawing-history.md) |
 | Layouts & plotting | Paper-space layouts, viewports (scale, lock, per-viewport layer freeze), MSPACE/PSPACE through viewports, page setups, PLOT and EXPORTPDF |
 | Parametric | Geometric and dimensional constraints, AUTOCONSTRAIN, PARAMETERS with expressions, conflict detection; constraints re-solve after every edit |
 | Grips | Hot grips with Space to cycle Stretch, Move, Rotate, Scale and Mirror |
