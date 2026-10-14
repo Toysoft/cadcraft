@@ -5,6 +5,7 @@
 //! `groups`, saved as GROUP objects in the ACAD_GROUP dictionary. The JSON forms never prompt;
 //! typed, the commands ask as AutoCAD's command-line versions do.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cadcraft_doc::{Drawing, Group, Handle};
@@ -94,6 +95,63 @@ pub(crate) fn create(s: &mut Session, name: Option<&str>, description: &str, hs:
     };
     s.doc_mut()?.groups.push(Group { name: name.clone(), description: description.to_string(), selectable, members });
     Ok(name)
+}
+
+/// The groups a copy command copies with its objects: those whose every member is among the
+/// objects copied. Worked out once per command, before its copies, so a large ARRAY doesn't walk
+/// the drawing's groups (which grow with each copy) once per item.
+#[derive(Default)]
+pub(crate) struct GroupCopies {
+    whole: Vec<Group>,
+    /// Upper-case group names taken in the target drawing, filled at the first copy.
+    used: Option<HashSet<String>>,
+    next: usize,
+}
+
+impl GroupCopies {
+    /// The groups of `groups` held whole by `hs`. A group held in part is not copied, as in
+    /// AutoCAD.
+    pub(crate) fn new(groups: &[Group], hs: &[Handle]) -> Self {
+        if groups.is_empty() || hs.is_empty() {
+            return Self::default();
+        }
+        let set: HashSet<Handle> = hs.iter().copied().collect();
+        let whole = groups.iter().filter(|g| !g.members.is_empty() && g.members.iter().all(|h| set.contains(h))).cloned().collect();
+        Self { whole, ..Self::default() }
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.whole.is_empty()
+    }
+
+    /// The whole groups, as they are in the source drawing.
+    pub(crate) fn into_whole(self) -> Vec<Group> {
+        self.whole
+    }
+
+    /// Add to `d` an unnamed group (`*A1`, `*A2`…) of the copies of each whole group: a copied
+    /// group is unnamed in AutoCAD too, whatever the original is called. `copies` maps an object
+    /// to its copy; a group with a member not copied gets none.
+    pub(crate) fn add(&mut self, d: &mut Drawing, copies: &HashMap<Handle, Handle>) {
+        if self.whole.is_empty() || copies.is_empty() {
+            return;
+        }
+        let used = self.used.get_or_insert_with(|| d.groups.iter().map(|g| g.name.to_ascii_uppercase()).collect());
+        for g in &self.whole {
+            if d.groups.len() >= MAX_GROUPS {
+                return;
+            }
+            let Some(members) = g.members.iter().map(|h| copies.get(h).copied()).collect::<Option<Vec<_>>>() else { continue };
+            let name = loop {
+                self.next += 1;
+                let name = format!("*A{}", self.next);
+                if used.insert(name.clone()) {
+                    break name;
+                }
+            };
+            d.groups.push(Group { name, members, ..g.clone() });
+        }
+    }
 }
 
 /// Remove the groups at `idx`; their objects stay. Returns the names removed.

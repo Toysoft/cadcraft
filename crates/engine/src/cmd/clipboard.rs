@@ -5,12 +5,13 @@
 //! layers, linetypes, text, dimension, multileader and table styles, and the blocks they reference
 //! (nested ones too). Pasting adds the ones the target drawing doesn't have; a name the target
 //! already has keeps the target's definition, and a generated (anonymous `*…`) block whose name is
-//! taken gets a fresh one. Pasted objects get new handles.
+//! taken gets a fresh one. Pasted objects get new handles; a group copied whole is pasted as an
+//! unnamed group of the pasted objects, as in AutoCAD.
 //!
 //! The clipboard can also travel as DXF text ([`system_text`], [`load_system_text`]), so a front
 //! end can put it on the system clipboard and paste it into another CADCraft window.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use cadcraft_doc::{Block, Drawing, Entity, EntityKind, HVal, Handle};
@@ -79,16 +80,22 @@ pub(crate) fn paste(s: &mut Session, m: &Mat3) -> Result<Vec<Handle>> {
     let defs = s.clipboard_source.as_ref().map(|c| c.defs.clone());
     let space = s.space();
     let d = s.doc_mut()?;
-    let renames = defs.map(|x| merge(d, &x)).unwrap_or_default();
+    let renames = defs.as_ref().map(|x| merge(d, x)).unwrap_or_default();
     let mut out = Vec::new();
+    let mut copies = HashMap::new();
     for e in &ents {
+        let old = e.handle;
         let mut e = adopt(d, e, &renames);
         e.kind.transform(m);
         d.ensure_layer(&e.common.layer);
         out.push(e.handle);
         if let Some(st) = d.space_mut(&space) {
+            copies.insert(old, e.handle);
             st.push(e);
         }
+    }
+    if let Some(x) = &defs {
+        super::groups::GroupCopies::new(&x.groups, &copies.keys().copied().collect::<Vec<_>>()).add(d, &copies);
     }
     s.set_selection(out.clone());
     Ok(out)
@@ -229,7 +236,8 @@ impl Used {
 }
 
 /// The definitions `ents` need from `src`: the layers, linetypes, styles and blocks they (and the
-/// blocks they reference, nested ones too) use, and `src`'s header.
+/// blocks they reference, nested ones too) use, the groups all of whose members are among them,
+/// and `src`'s header.
 fn defs_for(src: &Drawing, ents: &[Entity]) -> Drawing {
     let mut used = Used::default();
     let mut frontier: Vec<String> = ents.iter().flat_map(|e| used.note(e)).collect();
@@ -272,6 +280,9 @@ fn defs_for(src: &Drawing, ents: &[Entity]) -> Drawing {
     d.mleader_styles = pick(&src.mleader_styles, &used.mleader_styles, |t| &t.name);
     d.table_styles = pick(&src.table_styles, &used.table_styles, |t| &t.name);
     d.blocks = src.blocks.iter().filter(|(k, _)| used.blocks.contains(&up(k))).map(|(k, b)| (k.clone(), b.clone())).collect();
+    // The groups copied whole: pasting makes unnamed copies of them.
+    let hs: Vec<Handle> = ents.iter().map(|e| e.handle).collect();
+    d.groups = super::groups::GroupCopies::new(&src.groups, &hs).into_whole();
     d.layouts.clear();
     d
 }

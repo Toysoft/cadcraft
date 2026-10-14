@@ -14,9 +14,10 @@ use cadcraft_doc::{ArrayKind, ArrayParams, Block, Drawing, Entity, EntityKind, H
 use cadcraft_geom::{Bounds2, Mat3, Vec2, Vec3};
 use serde_json::{Value, json};
 
+use super::groups::GroupCopies;
 use super::helpers::{line, v3};
 use super::machines::{SelOutcome, SelectPhase, number};
-use super::modify::transform_entities;
+use super::modify::copy_transformed;
 use super::*;
 use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
 
@@ -242,8 +243,9 @@ fn max_count(s: &Session, others: u64, objs: usize) -> u64 {
 
 fn copy_all(s: &mut Session, hs: &[Handle], mats: impl Iterator<Item = Mat3>) -> Result<usize> {
     let mut n = 0;
+    let mut groups = GroupCopies::new(&s.doc()?.groups, hs);
     for m in mats {
-        n += transform_entities(s, hs, &m, true)?.len();
+        n += copy_transformed(s, hs, &m, &mut groups)?.len();
     }
     Ok(n)
 }

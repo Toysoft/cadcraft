@@ -2064,13 +2064,14 @@ pub(crate) fn arraypath(
     super::array::check_size(s, n as u64, objs.len())?;
     let Some((p0, t0)) = c.at_length(0.0) else { return Ok(Vec::new()) };
     let mut out = Vec::new();
+    let mut groups = super::groups::GroupCopies::new(&s.doc()?.groups, &objs);
     for i in 1..n {
         let Some((p, t)) = c.at_length(step * i as f64) else { continue };
         let mut m = Mat3::translate(p - p0);
         if align {
             m = Mat3::rotate_about(p, t.angle() - t0.angle()).then_before(m);
         }
-        out.extend(super::modify::transform_entities(s, &objs, &m, true)?);
+        out.extend(super::modify::copy_transformed(s, &objs, &m, &mut groups)?);
     }
     Ok(out)
 }

@@ -7,6 +7,7 @@ use cadcraft_geom::{
 };
 use serde_json::{Value, json};
 
+use super::groups::GroupCopies;
 use super::helpers::*;
 use super::machines::{SelOutcome, SelectPhase, number};
 use super::trimextend::{self, TrimM};
@@ -100,8 +101,20 @@ pub fn specs() -> Vec<CommandSpec> {
 // ---------------- core operations ----------------
 
 pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy: bool) -> Result<Vec<Handle>> {
+    let mut groups = if copy { GroupCopies::new(&s.doc()?.groups, hs) } else { GroupCopies::default() };
+    transform_with(s, hs, m, copy, &mut groups)
+}
+
+/// Copies of `hs` transformed by `m`, for a command that makes several copies of the same objects:
+/// `groups` (made once for all of them) gives each copy its groups.
+pub(crate) fn copy_transformed(s: &mut Session, hs: &[Handle], m: &Mat3, groups: &mut GroupCopies) -> Result<Vec<Handle>> {
+    transform_with(s, hs, m, true, groups)
+}
+
+fn transform_with(s: &mut Session, hs: &[Handle], m: &Mat3, copy: bool, groups: &mut GroupCopies) -> Result<Vec<Handle>> {
     let d = s.doc_mut()?;
     let mut out = Vec::new();
+    let mut copies = std::collections::HashMap::new();
     for h in hs {
         let Some(sp) = d.space_of(*h) else { continue };
         if copy {
@@ -112,6 +125,9 @@ pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy:
             if let Some(st) = d.space_mut(&sp) {
                 st.push(ne);
                 out.push(nh);
+                if !groups.is_empty() {
+                    copies.insert(*h, nh);
+                }
             }
         } else {
             let locked = d.entity(*h).and_then(|e| d.layer(&e.common.layer)).is_some_and(|l| l.locked);
@@ -122,6 +138,7 @@ pub(crate) fn transform_entities(s: &mut Session, hs: &[Handle], m: &Mat3, copy:
             out.push(*h);
         }
     }
+    groups.add(d, &copies);
     Ok(out)
 }
 
@@ -165,8 +182,9 @@ fn run_copy(s: &mut Session, p: &Value) -> Result<Value> {
     let d = delta_of("copy", p)?;
     let n = p.get("count").and_then(Value::as_u64).unwrap_or(1).clamp(1, 10_000);
     let mut out = Vec::new();
+    let mut groups = GroupCopies::new(&s.doc()?.groups, &hs);
     for k in 1..=n {
-        out.extend(transform_entities(s, &hs, &Mat3::translate(d * k as f64), true)?.into_iter().map(|h| h.hex()));
+        out.extend(copy_transformed(s, &hs, &Mat3::translate(d * k as f64), &mut groups)?.into_iter().map(|h| h.hex()));
     }
     Ok(json!({ "handles": out }))
 }
