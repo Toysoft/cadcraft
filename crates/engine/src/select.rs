@@ -8,10 +8,13 @@ use crate::{Accept, Prompt};
 
 /// Polylines approximating an entity for hit testing, tessellated at `tol`.
 pub fn hit_polylines(d: &Drawing, e: &Entity, tol: f64) -> Vec<Vec<Vec2>> {
+    if matches!(e.kind, EntityKind::Insert(_)) {
+        // A block is its lines and fills, not the rectangle around them.
+        return insert_polylines(&insert_list(d, e, tol));
+    }
     match &e.kind {
         EntityKind::Text(_)
         | EntityKind::MText(_)
-        | EntityKind::Insert(_)
         | EntityKind::Dimension(_)
         | EntityKind::AttDef(_)
         | EntityKind::Table(_)
@@ -25,7 +28,7 @@ pub fn hit_polylines(d: &Drawing, e: &Entity, tol: f64) -> Vec<Vec<Vec2>> {
             }
             let c = b.corners();
             let mut v = vec![vec![c[0], c[1], c[2], c[3], c[0]]];
-            if matches!(e.kind, EntityKind::Dimension(_) | EntityKind::Insert(_) | EntityKind::MLeader(_)) {
+            if matches!(e.kind, EntityKind::Dimension(_) | EntityKind::MLeader(_)) {
                 let list = cadcraft_render::build_entities(
                     d,
                     std::iter::once(e),
@@ -77,6 +80,76 @@ pub fn hit_polylines(d: &Drawing, e: &Entity, tol: f64) -> Vec<Vec<Vec2>> {
     }
 }
 
+/// The drawn geometry of a block reference, without text.
+fn insert_list(d: &Drawing, e: &Entity, tol: f64) -> cadcraft_render::DisplayList {
+    cadcraft_render::build_entities(d, std::iter::once(e), &cadcraft_render::Options { tolerance: tol, text: false, ..Default::default() })
+}
+
+/// Linework of a block. Filled triangles are closed loops of their own edges, so a later
+/// triangle is not joined to the previous one across empty space.
+fn insert_polylines(list: &cadcraft_render::DisplayList) -> Vec<Vec<Vec2>> {
+    let mut out = Vec::new();
+    for prim in &list.prims {
+        match prim.kind {
+            cadcraft_render::Kind::Tris | cadcraft_render::Kind::Mask => {
+                for tri in list.points(prim).chunks(3) {
+                    let (Some(a), Some(b), Some(c)) = (tri.first(), tri.get(1), tri.get(2)) else { continue };
+                    out.push(vec![*a, *b, *c, *a]);
+                }
+            }
+            _ => {
+                let pts = list.points(prim);
+                if !pts.is_empty() {
+                    out.push(pts.to_vec());
+                }
+            }
+        }
+    }
+    out
+}
+
+fn each_insert_triangle(list: &cadcraft_render::DisplayList, mut f: impl FnMut(Vec2, Vec2, Vec2) -> bool) -> bool {
+    for prim in &list.prims {
+        if !matches!(prim.kind, cadcraft_render::Kind::Tris | cadcraft_render::Kind::Mask) {
+            continue;
+        }
+        for tri in list.points(prim).chunks(3) {
+            let (Some(a), Some(b), Some(c)) = (tri.first(), tri.get(1), tri.get(2)) else { continue };
+            if f(*a, *b, *c) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Whether `bx` overlaps a filled triangle of a block (a solid hatch, a wide stroke).
+fn box_overlaps_triangle(bx: &Bounds2, a: Vec2, b: Vec2, c: Vec2) -> bool {
+    let tri = [a, b, c];
+    bx.corners().iter().any(|p| point_in_polygon(&tri, *p)) || seg_hits_box(a, b, bx) || seg_hits_box(b, c, bx) || seg_hits_box(c, a, bx)
+}
+
+/// A crossing box meets a block when it meets a drawn line or overlaps a fill.
+fn insert_hits_box(d: &Drawing, e: &Entity, bx: &Bounds2, tol: f64) -> bool {
+    let list = insert_list(d, e, tol);
+    polylines_hit_box(&insert_polylines(&list), bx) || each_insert_triangle(&list, |a, b, c| box_overlaps_triangle(bx, a, b, c))
+}
+
+fn point_in_insert_fill(d: &Drawing, e: &Entity, p: Vec2, tol: f64) -> bool {
+    let list = insert_list(d, e, tol);
+    each_insert_triangle(&list, |a, b, c| point_in_polygon(&[a, b, c], p))
+}
+
+fn polylines_hit_box(polys: &[Vec<Vec2>], bx: &Bounds2) -> bool {
+    polys.iter().any(|pl| {
+        if pl.len() == 1 {
+            pl.first().is_some_and(|p| bx.contains(*p))
+        } else {
+            pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx)))
+        }
+    })
+}
+
 fn dist_to_polyline(pts: &[Vec2], p: Vec2) -> f64 {
     if pts.len() == 1 {
         return pts.first().map(|q| q.dist(p)).unwrap_or(f64::INFINITY);
@@ -103,6 +176,11 @@ pub fn entity_distance(d: &Drawing, e: &Entity, p: Vec2, tol: f64) -> f64 {
     }
     // A SOLID fills its polygon, not its bounding rectangle (half of which is empty for a triangle).
     if matches!(e.kind, EntityKind::Solid(_)) && e.kind.prims().iter().any(|prim| matches!(prim, Prim::Fill(poly) if point_in_polygon(poly, p))) {
+        best = 0.0;
+    }
+    // A block's solid hatch (and any other fill) is hit inside the fill, not only on its edges
+    // and not anywhere inside the block's bounding rectangle.
+    if best > 0.0 && matches!(e.kind, EntityKind::Insert(_)) && point_in_insert_fill(d, e, p, tol) {
         best = 0.0;
     }
     best
@@ -257,16 +335,10 @@ pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bo
     if !crossing || (!infinite && !eb.intersects(bx)) {
         return false;
     }
-    let polys = hit_polylines(d, e, tol);
-    let hit = polys.iter().any(|pl| {
-        if pl.len() == 1 {
-            pl.first().is_some_and(|p| bx.contains(*p))
-        } else {
-            pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx)))
-        }
-    });
-    // A crossing box entirely inside a text/block bounding rectangle also selects it.
-    if hit || (eb.contains_box(bx) && matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_))) {
+    let hit = if matches!(e.kind, EntityKind::Insert(_)) { insert_hits_box(d, e, bx, tol) } else { polylines_hit_box(&hit_polylines(d, e, tol), bx) };
+    // A crossing box entirely inside a text bounding rectangle also selects it. A block does not:
+    // only its lines and hatches count.
+    if hit || (eb.contains_box(bx) && matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_))) {
         return true;
     }
     // SOLID/TRACE are filled polygons. A crossing window wholly within the
@@ -618,5 +690,102 @@ mod hatch_pattern_pick_tests {
         // Ignore style fills over the island.
         let d = solid_hatch(loops(), 2);
         assert!(pick(&d, &Space::Model, Vec2::new(5.0, 5.0), 0.05).is_some());
+    }
+}
+
+#[cfg(test)]
+mod block_selection_tests {
+    use super::*;
+    use cadcraft_doc::{Block, Common, Hatch, HatchLoop, Insert, Line};
+    use cadcraft_geom::{PolyVertex, Vec3};
+
+    fn insert_of(kind: EntityKind) -> (Drawing, Handle) {
+        let mut d = Drawing::new_metric();
+        let mut blk = Block::new("B");
+        blk.entities.push(Entity::new(Handle(10), kind));
+        d.blocks.insert("B".into(), std::sync::Arc::new(blk));
+        let ins = Insert {
+            block: "B".into(),
+            insert: Vec3::new(0.0, 0.0, 0.0),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+            rotation: 0.0,
+            attribs: Vec::new(),
+            cols: 1,
+            rows: 1,
+            col_spacing: 0.0,
+            row_spacing: 0.0,
+        };
+        let h = d.add(&Space::Model, Common::default(), EntityKind::Insert(ins)).unwrap();
+        (d, h)
+    }
+
+    fn diagonal() -> EntityKind {
+        EntityKind::Line(Line { a: Vec3::new(0.0, 0.0, 0.0), b: Vec3::new(10.0, 10.0, 0.0) })
+    }
+
+    fn tri_hatch() -> EntityKind {
+        let tri = HatchLoop {
+            vertices: [(0.0, 0.0), (10.0, 0.0), (0.0, 10.0)].iter().map(|&(x, y)| PolyVertex::new(Vec2::new(x, y))).collect(),
+            outer: true,
+            sources: Vec::new(),
+        };
+        EntityKind::Hatch(Hatch {
+            pattern: "SOLID".into(),
+            solid: true,
+            loops: vec![tri],
+            scale: 1.0,
+            angle: 0.0,
+            associative: false,
+            style: 0,
+            elevation: 0.0,
+            gradient: None,
+            origin: Vec2::ZERO,
+            background: None,
+            pattern_lines: Vec::new(),
+        })
+    }
+
+    fn box_at(x0: f64, y0: f64, x1: f64, y1: f64) -> Bounds2 {
+        Bounds2::new(Vec2::new(x0, y0), Vec2::new(x1, y1))
+    }
+
+    #[test]
+    fn crossing_empty_interior_of_a_block_does_not_select_it() {
+        let (d, _) = insert_of(diagonal());
+        // Inside the bounding square, off the diagonal.
+        let empty = box_at(0.5, 8.0, 2.0, 9.0);
+        assert!(select_window(&d, &Space::Model, empty, true).is_empty());
+        // A window (not a crossing) in that empty area does not select it either.
+        assert!(select_window(&d, &Space::Model, empty, false).is_empty());
+    }
+
+    #[test]
+    fn crossing_a_line_of_a_block_selects_it() {
+        let (d, h) = insert_of(diagonal());
+        let across = box_at(4.0, 6.0, 6.0, 4.0);
+        assert_eq!(select_window(&d, &Space::Model, across, true), vec![h]);
+    }
+
+    #[test]
+    fn window_containing_a_block_selects_it() {
+        let (d, h) = insert_of(diagonal());
+        assert_eq!(select_window(&d, &Space::Model, box_at(-1.0, -1.0, 11.0, 11.0), false), vec![h]);
+    }
+
+    #[test]
+    fn crossing_a_hatch_of_a_block_selects_it_and_the_empty_corner_does_not() {
+        let (d, h) = insert_of(tri_hatch());
+        // Inside the triangular fill, away from every edge.
+        assert_eq!(select_window(&d, &Space::Model, box_at(1.0, 1.0, 2.0, 2.0), true), vec![h]);
+        // The empty corner of the bounding square, outside the fill.
+        assert!(select_window(&d, &Space::Model, box_at(7.0, 7.0, 8.0, 8.0), true).is_empty());
+    }
+
+    #[test]
+    fn pick_hits_a_block_on_its_line_not_in_empty_bounds() {
+        let (d, h) = insert_of(diagonal());
+        assert_eq!(pick(&d, &Space::Model, Vec2::new(5.0, 5.0), 0.25), Some(h));
+        // Close to the bounding rectangle's right edge, far from the diagonal.
+        assert_eq!(pick(&d, &Space::Model, Vec2::new(9.9, 0.5), 0.25), None);
     }
 }
