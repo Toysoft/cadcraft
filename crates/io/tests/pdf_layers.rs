@@ -255,3 +255,19 @@ fn unusual_layer_names_and_titles_are_escaped() {
     assert_eq!(names, ["(a\\(b\\)\\\\c)", "<FEFF005700E4006E00640065>", "<FEFF65E5672C>"]);
     assert!(objs.iter().any(|(_, b)| b.contains("/Title <FEFF0050006C0061006E002000FC>")));
 }
+
+#[test]
+fn portrait_media_turns_landscape_sheets_for_printers() {
+    let d = layered();
+    let plain =
+        String::from_utf8_lossy(&plot(&d, &Space::Model, &json!({ "paper": "Letter", "landscape": true, "compress": false })).unwrap()).to_string();
+    assert!(plain.contains("/MediaBox [0 0 792 612]"), "{plain}");
+    let turned = plot(&d, &Space::Model, &json!({ "paper": "Letter", "landscape": true, "compress": false, "portraitMedia": true })).unwrap();
+    let turned = String::from_utf8_lossy(&turned).to_string();
+    assert!(turned.contains("/MediaBox [0 0 612 792]"), "{turned}");
+    assert!(turned.contains("q 0 1 -1 0 612 0 cm"));
+    // A portrait sheet is not turned.
+    let portrait = plot(&d, &Space::Model, &json!({ "paper": "Letter", "landscape": false, "compress": false, "portraitMedia": true })).unwrap();
+    let portrait = String::from_utf8_lossy(&portrait).to_string();
+    assert!(portrait.contains("/MediaBox [0 0 612 792]") && !portrait.contains("0 1 -1 0 "));
+}
