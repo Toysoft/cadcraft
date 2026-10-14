@@ -108,8 +108,40 @@ fn references_block(d: &cadcraft_doc::Drawing, ents: &[Entity], name: &str) -> b
     false
 }
 
+/// How the original entities are handled after creating a block.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BlockKeep {
+    /// Erase the original objects and insert a reference to the new block.
+    Convert,
+    /// Keep the original objects in the drawing; do not insert a reference.
+    Retain,
+    /// Erase the original objects without inserting a reference.
+    Delete,
+}
+
+impl BlockKeep {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "convert" => Some(Self::Convert),
+            "retain" => Some(Self::Retain),
+            "delete" => Some(Self::Delete),
+            _ => None,
+        }
+    }
+}
+
+fn parse_keep(p: &Value, default: BlockKeep) -> Result<BlockKeep> {
+    match p.get("keep") {
+        None | Some(Value::Null) => Ok(default),
+        Some(v) => match v.as_str().and_then(BlockKeep::parse) {
+            Some(k) => Ok(k),
+            None => Err(bad("block", "`keep` must be \"convert\", \"retain\" or \"delete\"")),
+        },
+    }
+}
+
 /// Create a block from entities. Returns the insert handle when converting.
-pub(crate) fn make_block(s: &mut Session, name: &str, base: Vec2, hs: &[Handle], keep: &str, description: &str) -> Result<Option<Handle>> {
+pub(crate) fn make_block(s: &mut Session, name: &str, base: Vec2, hs: &[Handle], keep: BlockKeep, description: &str) -> Result<Option<Handle>> {
     if !valid_block_name(name) {
         return Err(bad("block", "invalid block name"));
     }
@@ -136,13 +168,13 @@ pub(crate) fn make_block(s: &mut Session, name: &str, base: Vec2, hs: &[Handle],
         b.entities.push(e);
     }
     doc.blocks.insert(name.to_string(), Arc::new(b));
-    if keep != "retain" {
+    if keep != BlockKeep::Retain {
         for h in hs {
             doc.remove_entity(*h);
         }
     }
     s.set_selection(Vec::new());
-    if keep == "convert" {
+    if keep == BlockKeep::Convert {
         let h = insert(s, name, base, 1.0, 0.0, &serde_json::Map::new())?;
         return Ok(Some(h));
     }
@@ -215,12 +247,12 @@ pub(crate) fn insert_with(
     s.add_entity(EntityKind::Insert(ins))
 }
 
-fn run_block(s: &mut Session, p: &Value) -> Result<Value> {
+fn run_block_with_keep(s: &mut Session, p: &Value, default_keep: BlockKeep) -> Result<Value> {
     let name = str_param(p, "name").ok_or_else(|| bad("block", "`name` is required"))?.to_string();
+    let keep = parse_keep(p, default_keep)?;
     let base = point_param(p, "base").unwrap_or(Vec2::ZERO);
     let hs = targets(s, p)?;
-    let keep = str_param(p, "keep").unwrap_or("convert").to_string();
-    let r = make_block(s, &name, base, &hs, &keep, str_param(p, "description").unwrap_or(""))?;
+    let r = make_block(s, &name, base, &hs, keep, str_param(p, "description").unwrap_or(""))?;
     // An annotative block: its references (the converted selection too) are annotative.
     if bool_or(p, "annotative", false) {
         let d = s.doc_mut()?;
@@ -233,6 +265,10 @@ fn run_block(s: &mut Session, p: &Value) -> Result<Value> {
         }
     }
     Ok(json!({ "block": name, "insert": r.map(|h| h.hex()) }))
+}
+
+fn run_block(s: &mut Session, p: &Value) -> Result<Value> {
+    run_block_with_keep(s, p, BlockKeep::Convert)
 }
 
 fn run_insert(s: &mut Session, p: &Value) -> Result<Value> {
@@ -413,11 +449,7 @@ fn run_reference_set(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// -BLOCK's JSON form: BLOCK with the selection erased unless `keep` says otherwise.
 fn run_dash_block(s: &mut Session, p: &Value) -> Result<Value> {
-    let mut p = p.clone();
-    if let Some(o) = p.as_object_mut() {
-        o.entry("keep").or_insert_with(|| json!("delete"));
-    }
-    run_block(s, &p)
+    run_block_with_keep(s, p, BlockKeep::Delete)
 }
 
 /// BLOCK / -BLOCK at the command line. BLOCK converts the selection to a reference to the new
@@ -495,7 +527,7 @@ impl BlockM {
     fn finish(&mut self, s: &mut Session, hs: &[Handle]) -> Result<Step> {
         let (Some(name), Some(base)) = (self.name.clone(), self.base) else { return Ok(Step::Cancel) };
         // A definition that can't be made (e.g. one that would reference itself) ends the command.
-        let keep = if self.dash { "delete" } else { "convert" };
+        let keep = if self.dash { BlockKeep::Delete } else { BlockKeep::Convert };
         if let Err(e) = make_block(s, &name, base, hs, keep, "") {
             s.echo(e.to_string());
             return Ok(Step::Done);
