@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use cadcraft_doc::foreign::{Foreign, ForeignExtra, ForeignKey, ForeignObject};
 use cadcraft_doc::{Drawing, Entity, EntityKind, Handle, RawTag, Unknown};
-use cadcraft_dxf::{Section, Tag};
+use cadcraft_dxf::{SectionView, Tag};
 
 /// Named object dictionary entries CADCraft writes itself from its model (plus every key that
 /// starts with `CADCRAFT`): they are read into the model, not kept raw. A change that starts
@@ -325,8 +325,8 @@ fn put_xdata(d: &mut Drawing, mut xdata: HashMap<Handle, Vec<RawTag>>) {
 }
 
 /// Keep what `secs` holds that the reader did not model in `d.foreign`.
-pub(crate) fn read(secs: &[Section], d: &mut Drawing) {
-    let get = |name: &str| secs.iter().find(|s| s.name == name).map(|s| split(&s.tags)).unwrap_or_default();
+pub(crate) fn read<S: SectionView>(secs: &[S], d: &mut Drawing) {
+    let get = |name: &str| secs.iter().find(|s| s.name() == name).map(|s| split(s.tags())).unwrap_or_default();
     let (classes, tables, blocks, entities, objects) = (get("CLASSES"), get("TABLES"), get("BLOCKS"), get("ENTITIES"), get("OBJECTS"));
     // The drawing's entities by handle: whether each is of a type CADCraft doesn't model.
     let mut ents: HashMap<String, bool> = HashMap::new();
@@ -485,8 +485,8 @@ pub(crate) fn read(secs: &[Section], d: &mut Drawing) {
         }
     }
     // The data store (ACDSDATA): the ACIS geometry of solids, regions and bodies from 2013 on.
-    if let Some(ds) = secs.iter().find(|s| s.name.eq_ignore_ascii_case("ACDSDATA")) {
-        f.data_store = ds.tags.iter().take(MAX_DATA_STORE_GROUPS).map(raw).collect();
+    if let Some(ds) = secs.iter().find(|s| s.name().eq_ignore_ascii_case("ACDSDATA")) {
+        f.data_store = ds.tags().iter().take(MAX_DATA_STORE_GROUPS).map(raw).collect();
     }
     if !f.is_empty() {
         d.foreign = Arc::new(f);

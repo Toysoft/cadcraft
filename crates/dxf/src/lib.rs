@@ -530,8 +530,44 @@ pub struct Section {
     pub tags: Vec<Tag>,
 }
 
+/// A section borrowing the parsed tags instead of copying their strings and values.
+#[derive(Clone, Debug)]
+pub struct SectionRef<'a> {
+    pub name: String,
+    pub tags: &'a [Tag],
+}
+
+/// Read-only access shared by owned and borrowed section representations.
+pub trait SectionView {
+    fn name(&self) -> &str;
+    fn tags(&self) -> &[Tag];
+}
+
+impl SectionView for Section {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &[Tag] {
+        &self.tags
+    }
+}
+
+impl SectionView for SectionRef<'_> {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn tags(&self) -> &[Tag] {
+        self.tags
+    }
+}
+
 /// Split a tag stream into sections.
 pub fn sections(tags: &[Tag]) -> Vec<Section> {
+    sections_ref(tags).into_iter().map(|s| Section { name: s.name, tags: s.tags.to_vec() }).collect()
+}
+
+/// Split a tag stream into sections without cloning the tag payloads.
+pub fn sections_ref(tags: &[Tag]) -> Vec<SectionRef<'_>> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < tags.len() {
@@ -543,7 +579,7 @@ pub fn sections(tags: &[Tag]) -> Vec<Section> {
             while j < tags.len() && !(tags.get(j).is_some_and(|t| t.code == 0 && t.str() == "ENDSEC")) {
                 j += 1;
             }
-            out.push(Section { name, tags: tags.get(start..j).unwrap_or(&[]).to_vec() });
+            out.push(SectionRef { name, tags: tags.get(start..j).unwrap_or(&[]) });
             i = j + 1;
         } else {
             i += 1;
@@ -554,13 +590,24 @@ pub fn sections(tags: &[Tag]) -> Vec<Section> {
 
 /// Split a run of tags into records starting at each code-0 tag: (type, tags after the 0).
 pub fn records(tags: &[Tag]) -> Vec<(String, Vec<Tag>)> {
-    let mut out: Vec<(String, Vec<Tag>)> = Vec::new();
-    for t in tags {
-        if t.code == 0 {
-            out.push((t.str(), Vec::new()));
-        } else if let Some(last) = out.last_mut() {
-            last.1.push(t.clone());
+    records_ref(tags).into_iter().map(|(name, body)| (name, body.to_vec())).collect()
+}
+
+/// Record names and borrowed tag ranges, in the same order as [`records`].
+pub fn records_ref(tags: &[Tag]) -> Vec<(String, &[Tag])> {
+    let mut out = Vec::new();
+    let mut start = None;
+    for (i, t) in tags.iter().enumerate() {
+        if t.code != 0 {
+            continue;
         }
+        if let Some((name, from)) = start.take() {
+            out.push((name, tags.get(from..i).unwrap_or(&[])));
+        }
+        start = Some((t.str(), i.saturating_add(1)));
+    }
+    if let Some((name, from)) = start {
+        out.push((name, tags.get(from..).unwrap_or(&[])));
     }
     out
 }
@@ -568,6 +615,49 @@ pub fn records(tags: &[Tag]) -> Vec<(String, Vec<Tag>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn borrowed_sections_and_records_keep_payloads_in_the_tag_stream() {
+        let tags = vec![
+            Tag::s(0, "SECTION"),
+            Tag::s(2, "ENTITIES"),
+            Tag::s(0, "TEXT"),
+            Tag::s(1, "Café"),
+            Tag::f(40, 2.5),
+            Tag::s(0, "LINE"),
+            Tag::f(10, 3.0),
+            Tag::s(0, "ENDSEC"),
+            Tag::s(0, "SECTION"),
+            Tag::s(2, "ENTITIES"),
+            Tag::s(0, "POINT"),
+            Tag::f(10, 8.0),
+            Tag::s(0, "ENDSEC"),
+            Tag::s(0, "EOF"),
+        ];
+        let sections = sections_ref(&tags);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].name, "ENTITIES");
+        let records = records_ref(sections[0].tags);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].0, "TEXT");
+        assert_eq!(records[0].1, &tags[3..5]);
+        assert!(std::ptr::eq(records[0].1.as_ptr(), tags[3..].as_ptr()));
+        assert_eq!(records[1].1, &tags[6..7]);
+        assert_eq!(records_ref(sections[1].tags)[0].0, "POINT");
+    }
+
+    #[test]
+    fn borrowed_views_tolerate_unterminated_sections_and_empty_records() {
+        let tags = vec![Tag::s(0, "SECTION"), Tag::s(2, "ENTITIES"), Tag::s(0, "LINE"), Tag::s(0, "POINT"), Tag::f(10, 9.0)];
+        let sections = sections_ref(&tags);
+        assert_eq!(sections.len(), 1);
+        let records = records_ref(sections[0].tags);
+        assert!(records[0].1.is_empty());
+        assert_eq!(records[1].1, &tags[4..]);
+        assert!(sections_ref(&[Tag::s(0, "SECTION")])[0].tags.is_empty());
+        assert!(sections_ref(&[]).is_empty());
+        assert!(records_ref(&[]).is_empty());
+    }
 
     #[test]
     fn ascii_roundtrip() {
