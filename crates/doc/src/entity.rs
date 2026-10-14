@@ -509,6 +509,12 @@ impl Insert {
             .then_before(Mat3::scale(self.scale.x, self.scale.y))
             .then_before(Mat3::translate(-base))
     }
+
+    /// The elevation this reference gives the points of its block (whose base point is at
+    /// `base_z`): the `(scale, offset)` for [`EntityKind::transform_z`].
+    pub fn transform_z(&self, base_z: f64) -> (f64, f64) {
+        (self.scale.z, self.insert.z - self.scale.z * base_z)
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -1379,6 +1385,80 @@ impl EntityKind {
                 t.dir = Vec2::from_angle(cadcraft_geom::norm_angle(a)).to3(0.0);
             }
             EntityKind::Unknown(_) => {}
+        }
+    }
+
+    /// Move the elevation of every point: z becomes `offset + scale * z`. This is the Z part of
+    /// a block reference's placement, applied after [`transform`](Self::transform), which is
+    /// planar and leaves Z alone (it does carry its uniform factor into a nested reference's Z
+    /// scale, so that is not scaled again here). A scale or offset that is not finite changes
+    /// nothing.
+    pub fn transform_z(&mut self, scale: f64, offset: f64) {
+        if !scale.is_finite() || !offset.is_finite() {
+            return;
+        }
+        let z = |p: &mut Vec3| p.z = offset + scale * p.z;
+        let text = |t: &mut Text| {
+            z(&mut t.insert);
+            if let Some(a) = &mut t.align_pt {
+                z(a);
+            }
+        };
+        let attrib = |a: &mut Attrib| {
+            text(&mut a.text);
+            if let Some(ml) = &mut a.multiline {
+                z(&mut ml.mtext.insert);
+            }
+        };
+        match self {
+            EntityKind::Line(l) => {
+                z(&mut l.a);
+                z(&mut l.b);
+            }
+            EntityKind::Point(p) => z(&mut p.p),
+            EntityKind::Circle(c) => z(&mut c.center),
+            EntityKind::Arc(a) => z(&mut a.center),
+            EntityKind::Ellipse(e) => z(&mut e.center),
+            EntityKind::LwPolyline(p) => p.elevation = offset + scale * p.elevation,
+            EntityKind::Polyline3d(p) => p.points.iter_mut().for_each(z),
+            EntityKind::Helix(h) => z(&mut h.center),
+            EntityKind::Ray(r) | EntityKind::XLine(r) => z(&mut r.base),
+            EntityKind::Text(t) => text(t),
+            EntityKind::AttDef(a) => attrib(a),
+            EntityKind::MText(t) => z(&mut t.insert),
+            EntityKind::Insert(i) => {
+                z(&mut i.insert);
+                i.attribs.iter_mut().for_each(attrib);
+            }
+            EntityKind::Dimension(d) => {
+                for p in [&mut d.defpt, &mut d.text_mid, &mut d.p13, &mut d.p14, &mut d.p15, &mut d.p16] {
+                    z(p);
+                }
+                d.marks.transform(&z, 0.0, 1.0, false);
+            }
+            EntityKind::MLine(ml) => ml.vertices.iter_mut().for_each(|v| z(&mut v.p)),
+            EntityKind::Leader(l) => l.vertices.iter_mut().for_each(z),
+            EntityKind::MLeader(ml) => {
+                for l in &mut ml.leaders {
+                    l.iter_mut().for_each(z);
+                }
+                z(&mut ml.landing);
+                if let Some(t) = &mut ml.text {
+                    z(&mut t.insert);
+                }
+                if let Some(b) = &mut ml.block {
+                    z(&mut b.insert);
+                }
+            }
+            EntityKind::Hatch(h) => h.elevation = offset + scale * h.elevation,
+            EntityKind::Solid(so) | EntityKind::Trace(so) => so.corners.iter_mut().for_each(z),
+            EntityKind::Face3d(f) => f.corners.iter_mut().for_each(z),
+            EntityKind::Viewport(v) => z(&mut v.center),
+            EntityKind::Image(i) => z(&mut i.insert),
+            EntityKind::Table(t) => z(&mut t.insert),
+            EntityKind::Tolerance(t) => z(&mut t.insert),
+            // Planar objects without an elevation of their own.
+            EntityKind::Spline(_) | EntityKind::Region(_) | EntityKind::Wipeout(_) | EntityKind::Unknown(_) => {}
         }
     }
 

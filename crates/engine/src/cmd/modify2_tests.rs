@@ -644,6 +644,37 @@ fn explode_polyline3d_keeps_elevations() {
     assert_eq!(lines, vec![(5.0, 6.0), (6.0, 7.0)]);
 }
 
+/// A block reference's objects come out at the reference's elevation and Z scale (#917).
+#[test]
+fn explode_insert_keeps_elevations() {
+    let mut s = Session::new();
+    let p = h(&s.execute("3dpoly", &json!({"points": [[0, 0, 1], [1, 0, 1]]})).unwrap());
+    s.execute("block", &json!({"name": "B", "base": [0, 0], "handles": [p], "keep": "delete"})).unwrap();
+    let i = h(&s.execute("insert", &json!({"name": "B", "at": [5, 0]})).unwrap());
+    let ih = Handle::parse_hex(&i).unwrap();
+    s.doc_mut()
+        .unwrap()
+        .modify_entity(ih, |e| {
+            if let EntityKind::Insert(ins) = &mut e.kind {
+                ins.insert.z = 4.0;
+                ins.scale.z = 3.0;
+            }
+        })
+        .unwrap();
+    s.execute("explode", &json!({"handles": [i]})).unwrap();
+    let zs: Vec<(f64, f64)> = s
+        .doc()
+        .unwrap()
+        .model
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EntityKind::Polyline3d(p) => p.points.first().map(|p| (p.x, p.z)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(zs, vec![(5.0, 7.0)]);
+}
+
 /// Snapshot of every model entity, to prove a command left the drawing untouched.
 fn model_dump(s: &Session) -> String {
     format!("{:?}", s.doc().unwrap().model.iter().map(|e| e.kind.clone()).collect::<Vec<_>>())

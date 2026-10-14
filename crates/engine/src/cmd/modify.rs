@@ -1276,12 +1276,14 @@ pub(crate) fn explode_kind(d: &cadcraft_doc::Drawing, e: &Entity) -> Option<Vec<
             }
             let blk = d.block(&ins.block)?;
             let m = ins.transform(blk.base.xy());
+            let (sz, dz) = ins.transform_z(blk.base.z);
             Some(
                 blk.entities
                     .iter()
                     .map(|be| {
                         let mut ne = (**be).clone();
                         ne.kind.transform(&m);
+                        ne.kind.transform_z(sz, dz);
                         if ne.common.layer == "0" {
                             ne.common.layer = e.common.layer.clone();
                         }

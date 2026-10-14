@@ -180,24 +180,30 @@ pub(crate) fn explode_array(d: &Drawing, e: &Entity) -> Option<Vec<Entity>> {
     let m = ins.transform(blk.base.xy());
     let mut out = Vec::new();
     for item in blk.entities.iter() {
-        let item = placed(e, item, &m);
+        let item = placed(e, item, &m, blk.base.z);
         let source = match &item.kind {
             EntityKind::Insert(i) if i.block.eq_ignore_ascii_case(&p.source) => d.block(&i.block).map(|b| (i.transform(b.base.xy()), b)),
             _ => None,
         };
         match source {
-            Some((im, b)) => out.extend(b.entities.iter().map(|se| placed(&item, se, &im))),
+            Some((im, b)) => out.extend(b.entities.iter().map(|se| placed(&item, se, &im, b.base.z))),
             None => out.push(item),
         }
     }
     Some(out)
 }
 
-/// `child` of a block referenced by `parent`, moved by `m`, with layer 0 and ByBlock properties
-/// taken from the reference (as EXPLODE does).
-fn placed(parent: &Entity, child: &Entity, m: &Mat3) -> Entity {
+/// `child` of a block (base point at elevation `base_z`) referenced by `parent`, moved by `m` and
+/// to the reference's elevation, with layer 0 and ByBlock properties taken from the reference (as
+/// EXPLODE does).
+fn placed(parent: &Entity, child: &Entity, m: &Mat3, base_z: f64) -> Entity {
     let mut ne = child.clone();
     ne.kind.transform(m);
+    // The planar transform leaves Z alone; an item's level and row elevation are in its Z (#917).
+    if let EntityKind::Insert(pi) = &parent.kind {
+        let (sz, dz) = pi.transform_z(base_z);
+        ne.kind.transform_z(sz, dz);
+    }
     if ne.common.layer == "0" {
         ne.common.layer = parent.common.layer.clone();
     }

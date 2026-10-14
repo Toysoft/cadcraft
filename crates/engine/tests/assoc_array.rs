@@ -162,6 +162,42 @@ fn explode_gives_plain_objects_and_edits_move_the_array() {
     assert!(s.doc().unwrap().entity(Handle::parse_hex(arr.as_str().unwrap()).unwrap()).is_some());
 }
 
+/// EXPLODE keeps every item at its level and row elevation (issue #917: the planar block
+/// transform used to leave the objects at the source's own Z).
+#[test]
+fn explode_keeps_level_and_row_elevations() {
+    let mut s = Session::new();
+    let r = s.execute("3dpoly", &json!({"points": [[0, 0, 1], [1, 0, 1]]})).unwrap();
+    let h = r["handle"].as_str().or_else(|| r["handles"][0].as_str()).unwrap().to_string();
+    let r = s
+        .execute(
+            "arrayrect",
+            &json!({"handles": [h], "rows": 2, "cols": 1, "rowSpacing": 10, "colSpacing": 10, "levels": 2, "levelSpacing": 5, "rowElevation": 2}),
+        )
+        .unwrap();
+    let arr = r["handle"].clone();
+    // (y, z) of each polyline's first point, sorted.
+    let starts = |s: &Session| {
+        let mut v: Vec<(f64, f64)> = model(s)
+            .iter()
+            .filter_map(|e| match &e.kind {
+                EntityKind::Polyline3d(p) => p.points.first().map(|p| (p.y, p.z)),
+                _ => None,
+            })
+            .collect();
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v
+    };
+    s.execute("explode", &json!({"handles": [arr]})).unwrap();
+    assert_eq!(starts(&s), vec![(0.0, 1.0), (0.0, 6.0), (10.0, 3.0), (10.0, 8.0)]);
+
+    // A scaled array scales its elevations too.
+    s.execute("undo", &json!({})).unwrap();
+    s.execute("scale", &json!({"handles": [arr], "base": [0, 0], "factor": 2})).unwrap();
+    s.execute("explode", &json!({"handles": [arr]})).unwrap();
+    assert_eq!(starts(&s), vec![(0.0, 2.0), (0.0, 12.0), (20.0, 6.0), (20.0, 16.0)]);
+}
+
 #[test]
 fn arrays_of_arrays_and_limits() {
     // An array of an array: exploding the outer one gives the inner arrays.
