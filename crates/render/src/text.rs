@@ -54,6 +54,15 @@ pub(super) fn placement(g: &TextGlyph, xf: Mat3) -> Mat3 {
     xf.then_before(Mat3 { a: g.x.x / 1000.0, b: g.x.y / 1000.0, c: g.y.x / 1000.0, d: g.y.y / 1000.0, e: g.origin.x, f: g.origin.y })
 }
 
+/// Whether a glyph placed by `xf` (font units, 1000 per em) can reach into `view`: its em box,
+/// with an em of margin all round for glyphs that reach outside it, overlaps the area.
+pub(super) fn may_show(xf: Mat3, view: &Bounds2) -> bool {
+    let corners = [Vec2::new(-1000.0, -1000.0), Vec2::new(2000.0, -1000.0), Vec2::new(2000.0, 2000.0), Vec2::new(-1000.0, 2000.0)];
+    let b = Bounds2::from_points(corners.map(|c| xf.apply(c)));
+    // A placement that isn't finite is left to the mesh code, which handles it.
+    b.is_empty() || !b.min.is_finite() || !b.max.is_finite() || b.intersects(view)
+}
+
 fn detail(xf: Mat3, pixel: f64) -> Detail {
     // The Frobenius norm bounds the largest stretch, including shear, mirroring and unequal
     // block scales. A font-unit error below pixel / stretch is below a pixel in every direction.
@@ -68,9 +77,36 @@ fn detail(xf: Mat3, pixel: f64) -> Detail {
     if !tolerance.is_finite() || tolerance < 0.0625 { Detail::Full } else { Detail::Reduced(tolerance.log2().floor().clamp(-4.0, 16.0) as i16) }
 }
 
+/// Most meshes each thread keeps in front of the shared cache.
+const MAX_LOCAL_ENTRIES: usize = 4096;
+
+thread_local! {
+    /// This thread's meshes, in front of the shared [`cache`]: display lists are built on all
+    /// cores, and every placed glyph reading the shared lock made text-heavy drawings (CJK text
+    /// is all filled glyphs) wait on it (#662, #666). Entries keep their face alive like the
+    /// shared ones, so a key's address is never reused while it is here.
+    static LOCAL: std::cell::RefCell<HashMap<Key, Entry>> = std::cell::RefCell::new(HashMap::new());
+}
+
 pub(super) fn mesh(g: &TextGlyph, xf: Mat3, pixel: f64) -> Arc<Mesh> {
     let detail = detail(xf, pixel);
     let key = (g.face.bytes.as_ptr() as usize, g.face.bytes.len(), g.face.index, g.gid, detail);
+    if let Some(m) = LOCAL.with(|l| l.borrow().get(&key).map(|e| e.mesh.clone())) {
+        return m;
+    }
+    let m = mesh_shared(g, key, detail);
+    LOCAL.with(|l| {
+        let mut l = l.borrow_mut();
+        if l.len() >= MAX_LOCAL_ENTRIES {
+            l.clear();
+        }
+        l.insert(key, Entry { _face: g.face.clone(), mesh: m.clone() });
+    });
+    m
+}
+
+/// [`mesh`] through the shared cache.
+fn mesh_shared(g: &TextGlyph, key: Key, detail: Detail) -> Arc<Mesh> {
     if let Some(entry) = cache().read().unwrap_or_else(PoisonError::into_inner).entries.get(&key) {
         return entry.mesh.clone();
     }

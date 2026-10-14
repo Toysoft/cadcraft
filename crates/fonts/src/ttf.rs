@@ -14,8 +14,10 @@
 //! On native builds both start from the `CADCRAFT_FONTALT` / `CADCRAFT_FONTFALLBACK`
 //! environment variables.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, RwLock};
 
 use cadcraft_geom::Vec2;
@@ -471,6 +473,7 @@ pub fn register(name: &str, bytes: Vec<u8>) {
     g.files.insert(key(name), Arc::new(bytes));
     g.resolved.clear();
     g.fallback = Fallback::default();
+    changed();
 }
 
 /// Register font bytes that live for the whole process under a name; they are copied only when
@@ -483,6 +486,7 @@ pub(crate) fn register_static(name: &str, bytes: &'static [u8]) {
     g.paths.insert(k, Source::Static(bytes));
     g.resolved.clear();
     g.fallback = Fallback::default();
+    changed();
 }
 
 /// Normalise a style font name ("arial.ttf", "Arial", "ARIALBD.TTF") to a lookup key.
@@ -496,9 +500,66 @@ fn is_stroke_name(k: &str) -> bool {
     k.is_empty() || k.ends_with(".shx") || k == crate::BUILTIN_FONT.to_ascii_lowercase() || k == "txt" || k == "simplex" || k == "romans"
 }
 
+/// Bumped whenever a font lookup can answer differently (a font registered, FONTALT or
+/// FONTFALLBACK changed), so the per-thread caches start over.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn changed() {
+    GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Most entries each per-thread cache holds before it starts over.
+const MAX_LOCAL: usize = 8192;
+
+/// Per-thread answers of [`find`] (by the name as given) and [`fallback_for`]. Display lists are
+/// built on all cores and look a font up for every text and a fallback for every character a
+/// text's font lacks (all of a CJK text's): through the shared tables each lookup took global
+/// locks, so text-heavy drawings spent most of their build waiting on them (#662, #666).
+#[derive(Default)]
+struct Local {
+    generation: u64,
+    find: HashMap<String, Option<Face>>,
+    fallback: HashMap<char, Option<Face>>,
+    /// FONTALT, asked for every text whose font isn't installed.
+    alt: Option<String>,
+    /// Glyph outlines, in front of the shared [`glyph_cache`] (whose lock every core reads).
+    glyphs: HashMap<GlyphCacheKey, Arc<GlyphOutline>>,
+}
+
+thread_local! {
+    static LOCAL: RefCell<Local> = RefCell::new(Local::default());
+}
+
+/// `f` on this thread's cache, emptied first when lookups changed since it was filled.
+fn local<R>(f: impl FnOnce(&mut Local) -> R) -> R {
+    LOCAL.with(|l| {
+        let mut l = l.borrow_mut();
+        let generation = GENERATION.load(Ordering::Relaxed);
+        if l.generation != generation {
+            *l = Local { generation, ..Local::default() };
+        }
+        f(&mut l)
+    })
+}
+
 /// A face of an installed (or registered) font by file name or family name. Stroke-font names
 /// (".shx", empty) return `None`.
 pub fn find(name: &str) -> Option<Face> {
+    if let Some(r) = local(|l| l.find.get(name).cloned()) {
+        return r;
+    }
+    let r = find_shared(name);
+    local(|l| {
+        if l.find.len() >= MAX_LOCAL {
+            l.find.clear();
+        }
+        l.find.insert(name.to_string(), r.clone());
+    });
+    r
+}
+
+/// [`find`] through the shared table.
+fn find_shared(name: &str) -> Option<Face> {
     let k = key(name);
     if is_stroke_name(&k) {
         return None;
@@ -546,12 +607,18 @@ fn split_list(s: &str) -> Vec<String> {
 /// FONTALT: the font used for a text style font that can't be found. Empty = the built-in
 /// stroke font.
 pub fn font_alt() -> String {
-    prefs().alt.clone()
+    if let Some(a) = local(|l| l.alt.clone()) {
+        return a;
+    }
+    let a = prefs().alt.clone();
+    local(|l| l.alt = Some(a.clone()));
+    a
 }
 
 /// Set FONTALT ("" or "." clears it).
 pub fn set_font_alt(name: &str) {
     prefs().alt = clean_name(name);
+    changed();
 }
 
 /// FONTFALLBACK: fonts tried first for characters a text's font lacks, comma-separated.
@@ -562,6 +629,7 @@ pub fn fallback_fonts() -> String {
 /// Set FONTFALLBACK from a comma- or semicolon-separated list ("" or "." clears it).
 pub fn set_fallback_fonts(list: &str) {
     prefs().fallback = split_list(list);
+    changed();
 }
 
 /// Characters worth a fallback search (not spaces, controls or private-use code points).
@@ -576,6 +644,21 @@ pub fn fallback_for(c: char) -> Option<Face> {
     if !wants_fallback(c) {
         return None;
     }
+    if let Some(r) = local(|l| l.fallback.get(&c).cloned()) {
+        return r;
+    }
+    let r = fallback_shared(c);
+    local(|l| {
+        if l.fallback.len() >= MAX_LOCAL {
+            l.fallback.clear();
+        }
+        l.fallback.insert(c, r.clone());
+    });
+    r
+}
+
+/// [`fallback_for`] through the shared tables.
+fn fallback_shared(c: char) -> Option<Face> {
     let (list, alt) = {
         let p = prefs();
         (p.fallback.clone(), p.alt.clone())
@@ -614,7 +697,8 @@ enum GlyphKey {
 /// Cached glyph outlines keyed by (font bytes address, length, face, glyph). Fonts live for the
 /// whole process in the font table, so the address identifies them. A read-write lock: display
 /// lists are built on all cores and nearly every lookup is a hit, which a mutex serialized.
-type GlyphCache = HashMap<(usize, usize, u32, GlyphKey), Arc<GlyphOutline>>;
+type GlyphCache = HashMap<GlyphCacheKey, Arc<GlyphOutline>>;
+type GlyphCacheKey = (usize, usize, u32, GlyphKey);
 
 fn glyph_cache() -> &'static RwLock<GlyphCache> {
     static C: OnceLock<RwLock<GlyphCache>> = OnceLock::new();
@@ -714,6 +798,22 @@ pub fn glyph_contours(face: &Face, gid: u16) -> Arc<[Vec<Vec2>]> {
 
 fn outline(face: &Face, k: GlyphKey) -> Arc<GlyphOutline> {
     let key = (face.bytes.as_ptr() as usize, face.bytes.len(), face.index, k);
+    if let Some(g) = local(|l| l.glyphs.get(&key).cloned()) {
+        return g;
+    }
+    let g = outline_shared(face, key);
+    local(|l| {
+        if l.glyphs.len() >= MAX_LOCAL {
+            l.glyphs.clear();
+        }
+        l.glyphs.insert(key, g.clone());
+    });
+    g
+}
+
+/// [`outline`] through the shared cache.
+fn outline_shared(face: &Face, key: GlyphCacheKey) -> Arc<GlyphOutline> {
+    let k = key.3;
     if let Some(g) = glyph_cache().read().unwrap_or_else(PoisonError::into_inner).get(&key) {
         return g.clone();
     }
