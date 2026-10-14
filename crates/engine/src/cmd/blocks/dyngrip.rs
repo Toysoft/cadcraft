@@ -69,7 +69,7 @@ fn drawn(d: &Drawing, h: Handle) -> Vec<EntityKind> {
             k
         })
         .collect();
-    out.extend(ins.attribs.iter().filter(|a| !a.invisible).map(|a| EntityKind::Text(a.text.clone())));
+    out.extend(ins.attribs.iter().filter(|a| a.shown()).map(|a| EntityKind::Text(a.text.clone())));
     out
 }
 
