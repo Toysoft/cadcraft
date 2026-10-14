@@ -1998,6 +1998,39 @@ pub(crate) fn trim_other(k: &EntityKind, cut: &[Segment], pick: Vec2) -> Result<
             }
             Ok(v)
         }
+        EntityKind::Ray(rl) | EntityKind::XLine(rl) => {
+            // As in AutoCAD, a piece with two ends is a line and an unbounded one a ray (#1235).
+            let xline = matches!(k, EntityKind::XLine(_));
+            let (base, dir) = (rl.base.xy(), rl.dir.xy().normalized());
+            // An xline is cut as two half-lines from its base: a segment starting 1e8 away puts
+            // the cut points ~1e-8 off, enough for a later TRIM to see the edge again.
+            let sides: &[f64] = if xline { &[1e8, -1e8] } else { &[1e8] };
+            let mut ts: Vec<f64> = sides
+                .iter()
+                .map(|far| Segment::Line(Line::new(base, base + dir * *far)))
+                .flat_map(|half| cut.iter().flat_map(move |c| intersect_ext(&half, c, false)))
+                .map(|x| (x - base).dot(dir))
+                .filter(|t| xline || *t > 1e-9)
+                .collect();
+            ts.sort_by(f64::total_cmp);
+            let tp = (pick - base).dot(dir);
+            let lo = ts.iter().copied().rfind(|t| *t < tp);
+            let hi = ts.iter().copied().find(|t| *t > tp);
+            if lo.is_none() && hi.is_none() {
+                return Err(none());
+            }
+            let ray = |p: Vec2, d: Vec2| EntityKind::Ray(cadcraft_doc::RayLine { base: v3(p), dir: v3(d) });
+            let mut v = Vec::new();
+            match lo {
+                Some(t) if xline => v.push(ray(base + dir * t, -dir)),
+                Some(t) => v.push(line(base, base + dir * t)),
+                None => {}
+            }
+            if let Some(t) = hi {
+                v.push(ray(base + dir * t, dir));
+            }
+            Ok(v)
+        }
         _ => Err(other("Cannot trim that object.")),
     }
 }
@@ -2027,6 +2060,18 @@ pub(crate) fn extend_other(k: &EntityKind, cut: &[Segment], pick: Vec2) -> Resul
             Ok(ellipse_kind(&if from_end { Ellipse { end: t, ..ge } } else { Ellipse { start: t, ..ge } }))
         }
         EntityKind::Spline(sp) => curve_edits::extend_spline(sp, cut, pick),
+        EntityKind::Ray(rl) => {
+            // A ray's one end is its base: EXTEND moves it back to the nearest edge (#1236).
+            let (base, dir) = (rl.base.xy(), rl.dir.xy().normalized());
+            let back = Segment::Line(Line::new(base, base - dir * 1e8));
+            let np = cut
+                .iter()
+                .flat_map(|c| intersect_ext(&back, c, false))
+                .filter(|x| (*x - base).dot(dir) < -1e-9)
+                .min_by(|x, y| x.dist(base).total_cmp(&y.dist(base)))
+                .ok_or_else(|| other("Object does not intersect an edge."))?;
+            Ok(EntityKind::Ray(cadcraft_doc::RayLine { base: v3(np), dir: rl.dir }))
+        }
         _ => Err(other("Cannot extend that object.")),
     }
 }
