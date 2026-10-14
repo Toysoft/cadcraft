@@ -120,7 +120,9 @@ fn breaks_and_data_links_roundtrip_and_the_block_draws_the_parts() {
     let bytes = cadcraft_io::write(&d, "t.dxf").unwrap();
     let back = cadcraft_io::read(&bytes, "t.dxf").unwrap();
     assert_eq!(first_table(&back), t);
-    // Two parts: the block repeats the header row (Item / Cost).
+    // Two parts: the block repeats the header row (Item / Cost). The table cell itself has its
+    // text three times in a 2018 file: the plain group 1, and the value and 302 of its cell value
+    // block (#1162).
     let text = String::from_utf8(bytes).unwrap();
-    assert_eq!(text.lines().filter(|l| l.trim() == "Item").count(), 3, "two in the block, one in the table cells");
+    assert_eq!(text.lines().filter(|l| l.trim() == "Item").count(), 5, "two in the block, three in the table cell");
 }

@@ -130,6 +130,9 @@ struct Ctx {
     /// The version the file ends up in (the DWG version for a DWG save): it decides which
     /// entity types exist (MULTILEADER from 2007).
     target: Version,
+    /// The version the DXF declares (R2000 for the DWG bridge's DXF): it decides the groups
+    /// that exist in the DXF of that version (table cell value blocks from 2007).
+    version: Version,
 }
 
 impl Ctx {
@@ -137,6 +140,11 @@ impl Ctx {
     /// older files get LEADER + MTEXT/INSERT.
     fn native_mleader(&self) -> bool {
         self.target >= Version::R2007
+    }
+    /// Whether table cells carry the cell value block (DXF Reference: group 301 "cell value
+    /// block begin" and the text in 302, from AutoCAD 2007 / AC1021; #1162).
+    fn table_cell_values(&self) -> bool {
+        self.version >= Version::R2007
     }
     fn style(&self, name: &str) -> Option<String> {
         self.styles.get(&name.to_ascii_uppercase()).cloned()
@@ -907,20 +915,43 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                     w.i(175, cs);
                     w.i(176, rs);
                     w.i(91, 0);
+                    if cx.table_cell_values() {
+                        // Extended cell flags (DXF Reference, from AutoCAD 2007).
+                        w.i(92, 0);
+                    }
                     w.i(178, 0);
                     w.f(145, 0.0);
                     if let Some(h) = cell.and_then(|x| x.text_height).filter(|h| h.is_finite() && *h > 0.0) {
                         w.f(140, h);
                     }
                     // Long text: 250-character code-2 chunks, the rest in code 1.
-                    let chars: Vec<char> = cell.map(|x| x.text.chars().collect()).unwrap_or_default();
-                    let chunks: Vec<String> = chars.chunks(250).map(|c| c.iter().collect()).collect();
-                    let n = chunks.len();
-                    for (i, ch) in chunks.into_iter().enumerate() {
-                        w.s(if i + 1 == n { 1 } else { 2 }, ch);
+                    let text = cell.map(|x| x.text.as_str()).unwrap_or("");
+                    let chars: Vec<char> = text.chars().collect();
+                    let mut chunks: Vec<String> = chars.chunks(250).map(|c| c.iter().collect()).collect();
+                    if chunks.is_empty() {
+                        chunks.push(String::new());
                     }
-                    if n == 0 {
-                        w.s(1, "");
+                    let n = chunks.len();
+                    for (i, ch) in chunks.iter().enumerate() {
+                        w.s(if i + 1 == n { 1 } else { 2 }, ch.clone());
+                    }
+                    if cx.table_cell_values() {
+                        // DXF 2007 and later: the cell value block the DXF Reference documents from
+                        // AutoCAD 2007 (301 "cell value block begin", the text in 302 with its
+                        // 250-character 303 chunks). Without it AutoCAD shows the cells empty
+                        // (#1162). The block's begin and end strings, its data type (90 = 4, a
+                        // string), group 1 value, unit (94) and format (300) are what the DWG
+                        // bridge renders a 2007+ DWG's cell as, and what the reader accepts.
+                        w.s(301, "CELL_VALUE");
+                        w.i(93, 0);
+                        w.i(90, 4);
+                        w.s(1, text);
+                        w.i(94, 0);
+                        w.s(300, "");
+                        for (i, ch) in chunks.iter().enumerate() {
+                            w.s(if i + 1 == n { 302 } else { 303 }, ch.clone());
+                        }
+                        w.s(304, "ACVALUE_END");
                     }
                 }
             }
@@ -1610,7 +1641,7 @@ fn tags_for(d: &Drawing, version: Version, target: Version) -> Vec<Tag> {
         .collect();
     user_blocks.iter_mut().for_each(|b| b.1 = format!("{:X}", 0));
     let user_blocks: Vec<(String, String, &Block)> = user_blocks.into_iter().map(|(n, _, b)| (n, w.h(), b)).collect();
-    let mut cx = Ctx { paper_views: paper_views(d), target, ..Ctx::default() };
+    let mut cx = Ctx { paper_views: paper_views(d), target, version, ..Ctx::default() };
     cx.block_records = user_blocks.iter().map(|(n, h, _)| (n.to_ascii_uppercase(), h.clone())).collect();
     // Dimension blocks.
     let mut dim_defs: Vec<(String, String, Vec<Entity>)> = Vec::new(); // filled below
@@ -2671,7 +2702,7 @@ pub fn entity_groups(d: &Drawing, e: &Entity) -> (String, Vec<Tag>) {
         layers: HashMap::new(),
         reactors: HashMap::new(),
     };
-    let cx = Ctx { target: Version::R2018, ..Ctx::default() };
+    let cx = Ctx { target: Version::R2018, version: Version::R2018, ..Ctx::default() };
     let paper = d.space_of(e.handle).is_some_and(|s| !matches!(s, cadcraft_doc::Space::Model));
     entity(&mut w, d, e, "0", paper, &cx);
     let mut tags = w.t.into_iter();

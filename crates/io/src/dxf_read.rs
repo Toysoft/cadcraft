@@ -523,6 +523,30 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
     Some((c, k))
 }
 
+/// A table cell's text (DXF Reference, ACAD_TABLE): from AutoCAD 2007 the cell value block's
+/// (301 … 304) 302 text with its 303 chunks when it has one, else the block's group 1 value (as
+/// the DWG bridge gives a 2007+ cell), else the plain group 1 text with its 2 (or 3) chunks
+/// before the block (#1162).
+fn cell_text(cell: &[Tag]) -> String {
+    let begin = cell.iter().position(|x| x.code == 301);
+    let plain = cell.get(..begin.unwrap_or(cell.len())).unwrap_or(&[]);
+    if let Some(b) = begin {
+        let block = cell.get(b + 1..).unwrap_or(&[]);
+        let block = block.get(..block.iter().position(|x| x.code == 304).unwrap_or(block.len())).unwrap_or(&[]);
+        let mut formatted: String = block.iter().filter(|x| x.code == 303).map(Tag::str).collect();
+        formatted.push_str(&block.iter().find(|x| x.code == 302).map(Tag::str).unwrap_or_default());
+        if !formatted.is_empty() {
+            return formatted;
+        }
+        if let Some(value) = block.iter().find(|x| x.code == 1).map(Tag::str).filter(|v| !v.is_empty()) {
+            return value;
+        }
+    }
+    let mut text: String = plain.iter().filter(|x| x.code == 2 || x.code == 3).map(Tag::str).collect();
+    text.push_str(&T(plain).s(1).unwrap_or_default());
+    text
+}
+
 /// An ACAD_TABLE entity: sizes, cell texts and merges (DXF Reference), plus CADCraft's
 /// title/header flags, text height and style name from xdata when present.
 fn acad_table(tags: &[Tag]) -> Table {
@@ -562,8 +586,7 @@ fn acad_table(tags: &[Tag]) -> Table {
         let cell = body.get(i..end).unwrap_or(&[]);
         i = end;
         let c = T(cell);
-        let mut text: String = cell.iter().filter(|x| x.code == 2 || x.code == 3).map(Tag::str).collect();
-        text.push_str(&c.s(1).unwrap_or_default());
+        let text = cell_text(cell);
         let span = |code: i32| c.i(code).and_then(|v| u32::try_from(v).ok());
         // A merge starts at the cell whose span (rows 176, columns 175) is more than one cell.
         // Its own merged flag (173) varies by writer: CADCraft sets it, while AutoCAD-style
