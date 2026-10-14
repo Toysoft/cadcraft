@@ -153,6 +153,7 @@ const ARABIC_FALLBACK: &[&str] = &[
     "dejavusans",
 ];
 const HEBREW_FALLBACK: &[&str] = &["notosanshebrew", "notoserifhebrew", "arial", "tahoma", "segoeui", "dejavusans"];
+const KOREAN_FALLBACK: &[&str] = &["malgun", "gulim", "batang", "dotum", "nanum", "notosanscjk", "notosanskr", "applegothic"];
 /// Script-specific fallback files loaded per character, at most.
 const MAX_SCRIPT_FILES: usize = 4;
 
@@ -161,6 +162,7 @@ fn script_fallback(c: char) -> &'static [&'static str] {
     match c {
         '\u{0600}'..='\u{08FF}' | '\u{FB50}'..='\u{FDFF}' | '\u{FE70}'..='\u{FEFF}' => ARABIC_FALLBACK,
         '\u{0590}'..='\u{05FF}' | '\u{FB1D}'..='\u{FB4F}' => HEBREW_FALLBACK,
+        '\u{1100}'..='\u{11FF}' | '\u{3130}'..='\u{318F}' | '\u{A960}'..='\u{A97F}' | '\u{AC00}'..='\u{D7AF}' | '\u{D7B0}'..='\u{D7FF}' => KOREAN_FALLBACK,
         _ => &[],
     }
 }

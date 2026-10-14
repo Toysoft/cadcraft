@@ -367,14 +367,16 @@ pub fn install_fonts(ctx: &egui::Context, language: &str) {
     // A sans-serif face reads best in the interface.
     embedded.sort_by_key(|f| !f.family.contains("Gothic") && !f.family.contains("Sans"));
     added.extend(embedded.first().map(|f| (format!("craft-{}", f.stem()), std::sync::Arc::new(egui::FontData::from_static(f.bytes)))));
-    // Korean: Noto Sans CJK and most CJK fonts above already cover Hangul; else a Hangul font.
-    if language == "ko"
-        && !cjk_covers_hangul()
-        && let Some(face) = korean_font()
-    {
+    // Korean font: always register so that Korean layer names, tab titles, and texts never show as tofu
+    // in any language. When the interface language is Korean, prioritize Korean font first.
+    if let Some(face) = korean_font() {
         let mut data = egui::FontData::from_owned(face.bytes.as_ref().clone());
         data.index = face.index;
-        added.push(("korean-ui".into(), std::sync::Arc::new(data)));
+        if language == "ko" {
+            added.insert(0, ("korean-ui".into(), std::sync::Arc::new(data)));
+        } else {
+            added.push(("korean-ui".into(), std::sync::Arc::new(data)));
+        }
     }
     for (name, data) in added {
         fonts.font_data.insert(name.clone(), data);
@@ -611,9 +613,9 @@ pub fn korean_font() -> Option<&'static cadcraft_fonts::ttf::Face> {
 }
 
 /// Whether the interface in `language` shows Hangul (the Korean name in the language picker):
-/// in every language when the CJK fonts cover it, in a Korean interface with [`korean_font`].
-pub fn shows_hangul(language: &str) -> bool {
-    cjk_covers_hangul() || (language == "ko" && korean_font().is_some())
+/// in every language when a Korean font is installed or CJK fonts cover it.
+pub fn shows_hangul(_language: &str) -> bool {
+    korean_font().is_some() || cjk_covers_hangul()
 }
 
 /// Whether the interface can show `language` without missing-glyph boxes: Chinese needs an
