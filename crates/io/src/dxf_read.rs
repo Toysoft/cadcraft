@@ -1803,6 +1803,17 @@ pub fn read(bytes: &[u8]) -> Result<Drawing> {
         }
         d.blocks.insert(name, std::sync::Arc::new(b));
     }
+    // A damaged file can repeat a handle across its ENTITIES sections (within one section
+    // duplicates were already renumbered). The stores replace an entity with the same handle, so
+    // a repeat would silently drop the earlier section's entity: give the repeats fresh handles
+    // (#939). Every section has been parsed by now, so a fresh handle is above all of them.
+    let mut seen = std::collections::HashSet::new();
+    for (_, _, e) in &mut entities {
+        if !seen.insert(e.handle) {
+            e.handle = d.new_handle();
+            seen.insert(e.handle);
+        }
+    }
     // ENTITIES section: model space, or paper space when flagged (67=1).
     for (owner, paper, e) in entities {
         d.ensure_layer(&e.common.layer);
