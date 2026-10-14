@@ -13,6 +13,7 @@ pub mod audit;
 pub mod autosave;
 pub mod blockedit;
 pub mod cmd;
+mod error_data;
 mod finite;
 pub mod grip_dims;
 pub mod grips;
@@ -42,6 +43,7 @@ pub use cadcraft_geom as geom;
 pub use cadcraft_render as render;
 pub use cmd::hatch::{HatchPicks, PatternChoice, PickMode, pattern_choices};
 pub use cmd::{CommandInfo, CommandSpec, command_specs, find_command};
+pub use error_data::{ERROR_CODES, ErrorInfo};
 pub use prompt::{Accept, Drag, Input, Interactive, Picker, Prompt, Step};
 
 #[derive(Debug, thiserror::Error)]

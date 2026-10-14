@@ -39,9 +39,9 @@ pub fn specs() -> Vec<CommandSpec> {
             .interactive(|_| Ok(Box::new(AreaM::default()))),
         CommandSpec::new("time", "Time", run_time).menu(&["Tools", "Inquiry", "Time"]).noundo(),
         CommandSpec::new("status", "Status", run_status).menu(&["Tools", "Inquiry", "Status"]).noundo(),
-        CommandSpec::new("drawing.inspect", "Inspect Drawing", run_inspect).params("{entities?: bool, limit?: n}").noundo(),
+        CommandSpec::new("drawing.inspect", "Inspect Drawing", run_inspect).params("{entities?: bool (default true), limit?: n (default 200)} → summary with insunits {code, name} and entities [{handle, type, layer, color, transparency, geometry (WCS, angles in radians), bbox?, extrusion? (only when not 0,0,1)}]").noundo(),
         CommandSpec::new("entities", "Query Entities", run_entities)
-            .params("{type?, layer?, window?: [[x,y],[x,y]], crossing?: bool (default true; false = entirely inside), limit?, offset?} → {count (all matches), returned, offset, entities}")
+            .params("{type?, layer?, window?: [[x,y],[x,y]], crossing?: bool (default true; false = entirely inside), limit?, offset?} → {count (all matches), returned, offset, entities} (entities as drawing.inspect)")
             .noundo(),
         CommandSpec::new("texts", "Query Texts", run_texts)
             .params("{contains?: text (any case), layer?, window?: [[x,y],[x,y]] (by insertion point), limit? (default 200), offset?} → {count (all matches), returned, offset, texts: [{handle, type, layer, text, at, height, rotation (degrees), style, tag? (attributes)}]}: the readable text of TEXT, MTEXT (formatting removed), block attributes and multileaders")
@@ -266,8 +266,26 @@ fn run_status(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({ "message": msg }))
 }
 
-fn entity_summary(e: &cadcraft_doc::Entity) -> Value {
-    json!({ "handle": e.handle.hex(), "type": e.kind.type_name(), "layer": e.common.layer, "color": e.common.color.name(), "transparency": super::props::transparency_value(e.common.transparency), "geometry": e.kind })
+/// One entity for agents (`drawing.inspect`, `entities`). `geometry` is in world coordinates
+/// (WCS); the DXF reader maps mirrored 2D objects (extrusion 0,0,-1) out of their OCS. `bbox` is
+/// the WCS extents as drawn (block references included), absent when the object draws nothing.
+/// `extrusion` is only there when it is not +Z: (0,0,-1) says the object was mirrored in its
+/// source file (its geometry is already WCS); a tilted direction says it lies in another plane,
+/// whose 2D points may still be in that plane's object coordinates (OCS).
+fn entity_summary(d: &cadcraft_doc::Drawing, e: &cadcraft_doc::Entity) -> Value {
+    let mut v = json!({ "handle": e.handle.hex(), "type": e.kind.type_name(), "layer": e.common.layer, "color": e.common.color.name(), "transparency": super::props::transparency_value(e.common.transparency), "geometry": e.kind });
+    let Some(o) = v.as_object_mut() else { return v };
+    let b = cadcraft_doc::entity_bounds(d, e, 0);
+    if !b.is_empty() {
+        o.insert("bbox".into(), json!([[b.min.x, b.min.y], [b.max.x, b.max.y]]));
+    }
+    let n = e.common.extrusion;
+    // Whatever `Mat4::ocs` treats as the default plane (plus Z of any length, or a zero or
+    // non-finite direction a hostile file may hold) is not reported.
+    if cadcraft_geom::Mat4::ocs(n) != cadcraft_geom::Mat4::IDENTITY {
+        o.insert("extrusion".into(), json!([n.x, n.y, n.z]));
+    }
+    v
 }
 
 fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
@@ -276,6 +294,7 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
     let limit = p.get("limit").and_then(Value::as_u64).unwrap_or(200) as usize;
     let space = st.space.clone();
     let ext = d.extents(&space);
+    let insunits = d.header.i64("INSUNITS", 1);
     let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
     if let Some(store) = d.space(&space) {
         for e in store.iter() {
@@ -290,6 +309,8 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
         "space": space.tab_name(),
         "entityCount": d.entity_count(),
         "counts": counts,
+        // INSUNITS: what one drawing unit is (0 = unitless; unset reads as UNITS shows it, inches).
+        "insunits": { "code": insunits, "name": crate::units::insunits_name(insunits) },
         "extents": if ext.is_empty() { Value::Null } else { json!([[ext.min.x, ext.min.y], [ext.max.x, ext.max.y]]) },
         "layers": d.layers.iter().map(|l| json!({"name": l.name, "on": l.on, "frozen": l.frozen, "locked": l.locked, "color": l.color.name(), "linetype": l.linetype})).collect::<Vec<_>>(),
         "currentLayer": d.header.str("CLAYER", "0"),
@@ -307,7 +328,7 @@ fn run_inspect(s: &mut Session, p: &Value) -> Result<Value> {
     if bool_or(p, "entities", true)
         && let (Some(o), Some(store)) = (out.as_object_mut(), d.space(&space))
     {
-        o.insert("entities".into(), Value::Array(store.iter().take(limit).map(|e| entity_summary(e)).collect()));
+        o.insert("entities".into(), Value::Array(store.iter().take(limit).map(|e| entity_summary(d, e)).collect()));
     }
     Ok(out)
 }
@@ -347,7 +368,7 @@ fn run_entities(s: &mut Session, p: &Value) -> Result<Value> {
         .filter(|e| layer.as_ref().is_none_or(|l| e.common.layer.to_ascii_lowercase() == *l))
         .filter(|e| window.as_ref().is_none_or(|w| crate::select::in_window(d, e, None, w, crossing, tol)))
         .collect();
-    let page: Vec<Value> = matches.iter().skip(offset).take(limit).map(|e| entity_summary(e)).collect();
+    let page: Vec<Value> = matches.iter().skip(offset).take(limit).map(|e| entity_summary(d, e)).collect();
     // `count` is every match; `returned` is this page of them (`offset`, `limit`).
     Ok(json!({ "count": matches.len(), "returned": page.len(), "offset": offset, "entities": page }))
 }
