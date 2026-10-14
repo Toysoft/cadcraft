@@ -2373,3 +2373,86 @@ fn foreign_table_reads_cell_text_height_and_keeps_style_scale() {
     assert_eq!(t2.cells[0][0].text_height, Some(150.0));
     assert_eq!(t2.cells[0][1].text_height, None);
 }
+
+#[test]
+fn line_and_point_extrusion_roundtrips() {
+    // A LINE's and a POINT's points are world coordinates; the extrusion (210) says which way
+    // their thickness runs and must survive a save.
+    let text = "0\nSECTION\n2\nENTITIES\n0\nLINE\n8\n0\n39\n2\n10\n0\n20\n0\n30\n0\n11\n5\n21\n0\n31\n0\n210\n0\n220\n-1\n230\n0\n\
+                0\nPOINT\n8\n0\n10\n1\n20\n2\n30\n0\n210\n1\n220\n0\n230\n0\n0\nENDSEC\n0\nEOF\n";
+    let d = read(text.as_bytes(), "l.dxf").unwrap();
+    let ext = |d: &Drawing, ty: &str| d.model.iter().find(|e| e.kind.type_name() == ty).expect("entity").common.extrusion;
+    assert_eq!(ext(&d, "Line"), Vec3::new(0.0, -1.0, 0.0));
+    assert_eq!(ext(&d, "Point"), Vec3::new(1.0, 0.0, 0.0));
+    let back = roundtrip(&d);
+    assert_eq!(ext(&back, "Line"), Vec3::new(0.0, -1.0, 0.0));
+    assert_eq!(ext(&back, "Point"), Vec3::new(1.0, 0.0, 0.0));
+    // The default extrusion is not written.
+    assert!(!write_dxf(&roundtrip(&sample())).contains("\n210\n"));
+}
+
+#[test]
+fn mirrored_extrusion_is_spent_once_converted() {
+    // A mirrored circle, arc, 2D polyline (both kinds) and text read into world coordinates keep no
+    // extrusion: the drawing read equals the drawing written and read back.
+    let mirrored = "210\n0\n220\n0\n230\n-1\n";
+    let text = format!(
+        "0\nSECTION\n2\nENTITIES\n\
+         0\nCIRCLE\n8\n0\n10\n-5\n20\n1\n40\n2\n{mirrored}\
+         0\nARC\n8\n0\n10\n-5\n20\n1\n40\n2\n50\n0\n51\n90\n{mirrored}\
+         0\nLWPOLYLINE\n8\n0\n90\n2\n10\n1\n20\n0\n42\n1\n10\n3\n20\n0\n{mirrored}\
+         0\nPOLYLINE\n8\n0\n66\n1\n70\n0\n{mirrored}0\nVERTEX\n8\n0\n10\n1\n20\n0\n0\nVERTEX\n8\n0\n10\n3\n20\n0\n0\nSEQEND\n\
+         0\nTEXT\n8\n0\n10\n-10\n20\n5\n40\n1\n1\nHi\n{mirrored}\
+         0\nENDSEC\n0\nEOF\n"
+    );
+    let d = read(text.as_bytes(), "m.dxf").unwrap();
+    assert_eq!(d.model.len(), 5);
+    assert!(d.model.iter().all(|e| e.common.extrusion == Vec3::Z), "{:?}", d.model.iter().map(|e| e.common.extrusion).collect::<Vec<_>>());
+    let back = roundtrip(&d);
+    let kinds = |d: &Drawing| d.model.iter().map(|e| (e.kind.clone(), e.common.extrusion)).collect::<Vec<_>>();
+    assert_eq!(kinds(&d), kinds(&back));
+    // A tilted extrusion is not fully converted and stays.
+    let tilted = "0\nSECTION\n2\nENTITIES\n0\nCIRCLE\n8\n0\n10\n0\n20\n0\n40\n1\n210\n1\n220\n0\n230\n0\n0\nENDSEC\n0\nEOF\n";
+    let d = read(tilted.as_bytes(), "t.dxf").unwrap();
+    assert_eq!(d.model.iter().next().expect("circle").common.extrusion, Vec3::new(1.0, 0.0, 0.0));
+}
+
+#[test]
+fn tilted_extrusion_roundtrips() {
+    // 2D entities in a tilted plane (an elevation in the XZ plane, and a plane tilted down) come
+    // back where they were: the reader's conversion is undone and the extrusion written.
+    for n in ["210\n0\n220\n-1\n230\n0\n", "210\n0\n220\n-0.6\n230\n-0.8\n"] {
+        let text = format!(
+            "0\nSECTION\n2\nBLOCKS\n0\nBLOCK\n2\nB\n10\n0\n20\n0\n0\nLINE\n8\n0\n10\n0\n20\n0\n11\n2\n21\n0\n0\nENDBLK\n0\nENDSEC\n\
+             0\nSECTION\n2\nENTITIES\n\
+             0\nCIRCLE\n8\n0\n10\n3\n20\n4\n30\n5\n40\n2\n{n}\
+             0\nARC\n8\n0\n10\n3\n20\n4\n30\n5\n40\n2\n50\n10\n51\n80\n{n}\
+             0\nELLIPSE\n8\n0\n10\n1\n20\n2\n30\n3\n11\n2\n21\n0\n31\n0\n40\n0.5\n41\n0.2\n42\n1.5\n{n}\
+             0\nLWPOLYLINE\n8\n0\n90\n2\n38\n7\n10\n1\n20\n0\n42\n0.5\n10\n3\n20\n2\n{n}\
+             0\nINSERT\n8\n0\n2\nB\n10\n4\n20\n5\n30\n6\n50\n30\n{n}\
+             0\nSOLID\n8\n0\n10\n0\n20\n0\n11\n1\n21\n0\n12\n0\n22\n1\n13\n1\n23\n1\n{n}\
+             0\nENDSEC\n0\nEOF\n"
+        );
+        let d = read(text.as_bytes(), "t.dxf").unwrap();
+        assert_eq!(d.model.len(), 6);
+        assert!(d.model.iter().all(|e| e.common.extrusion != Vec3::Z), "{n}");
+        let kinds = |d: &Drawing| d.model.iter().map(|e| (e.kind.clone(), e.common.extrusion)).collect::<Vec<_>>();
+        let back = roundtrip(&d);
+        for ((a, na), (b, nb)) in kinds(&d).into_iter().zip(kinds(&back)) {
+            assert_eq!(na, nb, "{n}");
+            let (ja, jb) = (serde_json::to_value(&a).unwrap(), serde_json::to_value(&b).unwrap());
+            assert!(near(&ja, &jb), "{n}: {ja} != {jb}");
+        }
+    }
+}
+
+/// JSON values equal up to 1e-9 in their numbers.
+fn near(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => (x.as_f64().unwrap_or(f64::NAN) - y.as_f64().unwrap_or(f64::NAN)).abs() < 1e-9,
+        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(x, y)| near(x, y)),
+        (Value::Object(x), Value::Object(y)) => x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| near(v, w))),
+        _ => a == b,
+    }
+}

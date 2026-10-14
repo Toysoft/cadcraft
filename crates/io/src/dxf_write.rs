@@ -527,12 +527,14 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             thickness(w, e);
             w.p(10, l.a);
             w.p(11, l.b);
+            extrusion(w, tilted(e));
         }
         EntityKind::Point(p) => {
             w.s(0, "POINT");
             common(w, e, owner, paper, "AcDbPoint");
             w.p(10, p.p);
             thickness(w, e);
+            extrusion(w, tilted(e));
             if p.angle != 0.0 {
                 w.f(50, p.angle.to_degrees());
             }
@@ -541,27 +543,47 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             w.s(0, "CIRCLE");
             common(w, e, owner, paper, "AcDbCircle");
             thickness(w, e);
-            w.p(10, c.center);
+            let n = tilted(e);
+            w.p(10, n.map_or(c.center, |n| to_ocs(n, c.center)));
             w.f(40, c.radius);
+            extrusion(w, n);
         }
         EntityKind::Arc(a) => {
             w.s(0, "ARC");
             common(w, e, owner, paper, "AcDbCircle");
             thickness(w, e);
-            w.p(10, a.center);
+            let n = tilted(e);
+            w.p(10, n.map_or(a.center, |n| to_ocs(n, a.center)));
             w.f(40, a.radius);
+            extrusion(w, n);
+            // The reader turned the angles of an extrusion with negative z round: turned back.
+            let (start, end) = match n {
+                Some(n) if n.z < 0.0 => {
+                    (cadcraft_geom::norm_angle(std::f64::consts::PI - a.end), cadcraft_geom::norm_angle(std::f64::consts::PI - a.start))
+                }
+                _ => (a.start, a.end),
+            };
             w.s(100, "AcDbArc");
-            w.f(50, a.start.to_degrees());
-            w.f(51, a.end.to_degrees());
+            w.f(50, start.to_degrees());
+            w.f(51, end.to_degrees());
         }
         EntityKind::Ellipse(el) => {
             w.s(0, "ELLIPSE");
             common(w, e, owner, paper, "AcDbEllipse");
             w.p(10, el.center);
             w.p(11, el.major);
+            let n = tilted(e);
+            extrusion(w, n);
             w.f(40, el.ratio);
-            w.f(41, el.start);
-            w.f(42, el.end);
+            // Parameters of a partial ellipse with a negative-z extrusion were turned round when read.
+            let (start, end) = match n {
+                Some(n) if n.z < 0.0 && (cadcraft_geom::ccw_sweep(el.start, el.end) - std::f64::consts::TAU).abs() > 1e-9 => {
+                    (cadcraft_geom::norm_angle(-el.end), cadcraft_geom::norm_angle(-el.start))
+                }
+                _ => (el.start, el.end),
+            };
+            w.f(41, start);
+            w.f(42, end);
         }
         EntityKind::LwPolyline(p) => {
             w.s(0, "LWPOLYLINE");
@@ -575,16 +597,21 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 w.f(38, p.elevation);
             }
             thickness(w, e);
+            // The vertices stay in the plane's own coordinates; those of a negative-z extrusion
+            // were mirrored (x and bulge) when read and are mirrored back.
+            let n = tilted(e);
+            let m = if n.is_some_and(|n| n.z < 0.0) { -1.0 } else { 1.0 };
             for v in &p.vertices {
-                w.p2(10, v.p);
+                w.p2(10, Vec2::new(m * v.p.x, v.p.y));
                 if v.start_width != 0.0 || v.end_width != 0.0 {
                     w.f(40, v.start_width);
                     w.f(41, v.end_width);
                 }
                 if v.bulge != 0.0 {
-                    w.f(42, v.bulge);
+                    w.f(42, m * v.bulge);
                 }
             }
+            extrusion(w, n);
         }
         EntityKind::MLine(m) => {
             w.s(0, "MLINE");
@@ -762,6 +789,8 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                 w.f(44, i.col_spacing);
                 w.f(45, i.row_spacing);
             }
+            // A tilted reference was kept as read: in its plane's coordinates.
+            extrusion(w, tilted(e));
             if !i.attribs.is_empty() {
                 for a in &i.attribs {
                     let ah = w.h();
@@ -967,11 +996,14 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
             let solid = matches!(e.kind, EntityKind::Solid(_));
             w.s(0, if solid { "SOLID" } else { "TRACE" });
             common(w, e, owner, paper, "AcDbTrace");
-            w.p(10, s.corners[0]);
-            w.p(11, s.corners[1]);
-            w.p(12, s.corners[2]);
-            w.p(13, s.corners[3]);
+            let n = tilted(e);
+            let c = s.corners.map(|p| n.map_or(p, |n| to_ocs(n, p)));
+            w.p(10, c[0]);
+            w.p(11, c[1]);
+            w.p(12, c[2]);
+            w.p(13, c[3]);
             thickness(w, e);
+            extrusion(w, n);
         }
         EntityKind::Face3d(f) => {
             w.s(0, "3DFACE");
@@ -1201,6 +1233,33 @@ fn thickness(w: &mut W, e: &Entity) {
     if e.common.thickness != 0.0 {
         w.f(39, e.common.thickness);
     }
+}
+
+/// The extrusion direction of an entity whose plane is not the XY plane: a LINE's or POINT's
+/// (the way its thickness runs) or a 2D entity's in a tilted plane (an elevation drawn in a
+/// vertical plane, say). A mirrored (0,0,-1) extrusion was turned into world coordinates when
+/// read and is not kept, so it does not come back here. `None` for the default (0,0,1).
+fn tilted(e: &Entity) -> Option<Vec3> {
+    let n = e.common.extrusion;
+    (n.is_finite() && n.len() > 1e-12 && n != Vec3::Z).then_some(n)
+}
+
+/// Group 210 when `n` is set.
+fn extrusion(w: &mut W, n: Option<Vec3>) {
+    if let Some(n) = n {
+        w.p(210, n);
+    }
+}
+
+/// World point `p` in the object coordinate system of extrusion `n` (the inverse of the reader's
+/// OCS → WCS: the frame is orthonormal, so its transpose).
+fn to_ocs(n: Vec3, p: Vec3) -> Vec3 {
+    let m = cadcraft_geom::Mat4::ocs(n).m;
+    Vec3::new(
+        m[0][0] * p.x + m[1][0] * p.y + m[2][0] * p.z,
+        m[0][1] * p.x + m[1][1] * p.y + m[2][1] * p.z,
+        m[0][2] * p.x + m[1][2] * p.y + m[2][2] * p.z,
+    )
 }
 
 /// Hatch origin and background colour as `CADCRAFT` xdata: `1000 HATCH`, the origin as a

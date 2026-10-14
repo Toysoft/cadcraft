@@ -243,6 +243,29 @@ fn mirror_text(t: &mut Text, align: Option<Vec3>, insert: Vec3) {
     }
 }
 
+/// Whether reading `k` turned its mirrored object coordinate system (extrusion (0,0,-1), as
+/// MIRROR leaves 2D objects) into world coordinates: mirrored points, angles, bulges and text
+/// direction. A tilted extrusion (plane not parallel to XY) is not fully converted and is kept.
+fn folds_extrusion(k: &EntityKind, n: Vec3) -> bool {
+    let mirrored = n.z < 0.0 && n.x.hypot(n.y) <= 1e-3 * n.z.abs();
+    mirrored
+        && matches!(
+            k,
+            EntityKind::Circle(_)
+                | EntityKind::Arc(_)
+                | EntityKind::Ellipse(_)
+                | EntityKind::LwPolyline(_)
+                | EntityKind::Text(_)
+                | EntityKind::MText(_)
+                | EntityKind::AttDef(_)
+                | EntityKind::Insert(_)
+                | EntityKind::Dimension(_)
+                | EntityKind::Solid(_)
+                | EntityKind::Trace(_)
+                | EntityKind::Hatch(_)
+        )
+}
+
 /// Parse one entity record. POLYLINE/INSERT followers are handled by the caller.
 fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
     // The paper-space viewport our writer adds (dxf_write::paper_view) stays implicit.
@@ -520,6 +543,14 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
             tags: tags.iter().map(|tg| RawTag { code: tg.code, value: tg.str() }).collect(),
         }),
     };
+    // A mirrored object coordinate system was turned into world coordinates above: the extrusion
+    // is spent, and kept it would claim a plane the geometry no longer has (and differ from the
+    // drawing written back, which has none). LINE and POINT keep theirs: their points are world
+    // coordinates and it says where their thickness runs; the writer writes it back.
+    let mut c = c;
+    if folds_extrusion(&k, c.extrusion) {
+        c.extrusion = Vec3::Z;
+    }
     Some((c, k))
 }
 
@@ -1168,6 +1199,10 @@ fn parse_entities(recs: &[(String, Vec<Tag>)], d: &mut Drawing, rx: &mut Rx, ski
                         plinegen: flags & 128 != 0,
                     })
                 };
+                let mut c = c;
+                if folds_extrusion(&k, c.extrusion) {
+                    c.extrusion = Vec3::Z;
+                }
                 kindent = Some((c, k));
             }
             "INSERT" => {
