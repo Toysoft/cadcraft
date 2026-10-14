@@ -230,3 +230,57 @@ fn many_objects_stay_fast() {
     assert_eq!(count(&s), 4001);
     assert!(t.elapsed().as_secs() < 20, "{:?}", t.elapsed());
 }
+
+fn kinds(s: &Session) -> Vec<&'static str> {
+    s.doc().unwrap().model.iter().map(|e| e.kind.type_name()).collect()
+}
+
+/// #1120: a line and its offset, then a rectangle drawn on their ends. The lines lie on two sides
+/// of the rectangle, so OVERKILL deletes them and keeps the polyline.
+#[test]
+fn lines_on_polyline_segments_go() {
+    let mut s = Session::new();
+    s.cmdline("line 0,0 10,0").unwrap();
+    s.cmdline("").unwrap();
+    s.cmdline("offset 5").unwrap();
+    s.cmdline("5,0").unwrap();
+    s.cmdline("5,8").unwrap();
+    s.cmdline("").unwrap();
+    s.cmdline("rectang 0,0 10,5").unwrap();
+    assert_eq!(lines(&s), [[0.0, 0.0, 10.0, 0.0], [0.0, 5.0, 10.0, 5.0]]);
+    assert_eq!(kinds(&s), ["Line", "Line", "Polyline"]);
+    let r = ok(&mut s, json!({ "plines": false }));
+    assert_eq!(r["deleted"], 0, "{r}");
+    let undo = s.state().unwrap().undo.len();
+    let r = ok(&mut s, json!({}));
+    assert_eq!(r["overlapping"], 2, "{r}");
+    assert_eq!(kinds(&s), ["Polyline"]);
+    assert_eq!(s.state().unwrap().undo.len(), undo + 1);
+    // A line longer than the side, or one of another colour, stays as it is.
+    line(&mut s, [-5.0, 0.0], [10.0, 0.0]);
+    let other = line(&mut s, [0.0, 5.0], [10.0, 5.0]);
+    s.execute("properties.set", &json!({ "handles": [other.hex()], "color": "red" })).unwrap();
+    let r = ok(&mut s, json!({}));
+    assert_eq!(r["deleted"], 0, "{r}");
+    assert_eq!(lines(&s), [[-5.0, 0.0, 10.0, 0.0], [0.0, 5.0, 10.0, 5.0]]);
+    // A line spanning two collinear segments of one polyline is covered too.
+    let mut s = Session::new();
+    s.execute("pline", &json!({ "vertices": [[0, 20], [4, 20], [10, 20]] })).unwrap();
+    line(&mut s, [2.0, 20.0], [8.0, 20.0]);
+    ok(&mut s, json!({}));
+    assert_eq!(kinds(&s), ["Polyline"]);
+}
+
+/// An arc lying on a polyline's arc segment goes too; one sticking out of it stays.
+#[test]
+fn arcs_on_polyline_segments_go() {
+    let mut s = Session::new();
+    // A half circle of radius 5 around the origin, counter-clockwise from 0° to 180°.
+    s.execute("pline", &json!({ "vertices": [{ "p": [5, 0], "bulge": 1.0 }, [-5, 0]] })).unwrap();
+    arc(&mut s, 30.0, 150.0);
+    let out = arc(&mut s, 150.0, 200.0);
+    let r = ok(&mut s, json!({}));
+    assert_eq!(r["overlapping"], 1, "{r}");
+    assert_eq!(kinds(&s), ["Polyline", "Arc"]);
+    assert!(s.doc().unwrap().entity(out).is_some());
+}

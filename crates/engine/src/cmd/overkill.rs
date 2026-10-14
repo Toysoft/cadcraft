@@ -1,7 +1,8 @@
 //! OVERKILL (Delete Duplicate Objects): deletes duplicates within a tolerance, deletes lines and
 //! arcs that lie on another one, combines collinear lines and arcs on the same circle that
 //! partially overlap (and, as an option, ones that meet end to end), and optimizes polylines
-//! (zero-length and collinear segments).
+//! (zero-length and collinear segments). With that option on, lines and arcs lying on a polyline
+//! segment are deleted and the polyline kept.
 //!
 //! Work stays near O(n log n): duplicates are hashed, lines are bucketed by direction and offset,
 //! arcs by circle.
@@ -9,7 +10,7 @@
 use std::collections::{HashMap, HashSet};
 
 use cadcraft_doc::{Circle, Common, Entity, EntityKind, Handle};
-use cadcraft_geom::{TAU, Vec2, Vec3, ccw_sweep, norm_angle};
+use cadcraft_geom::{Polyline, Segment, TAU, Vec2, Vec3, ccw_sweep, norm_angle};
 use serde_json::{Value, json};
 
 use super::machines::{SelOutcome, SelectPhase, number};
@@ -274,6 +275,56 @@ struct LineRec {
     b: Vec2,
     z: f64,
     len: f64,
+    /// A straight polyline segment: it covers lines, and is never deleted or changed itself.
+    seg: bool,
+}
+
+/// The straight and arc segments of the polylines that can cover lines and arcs (`plines` on):
+/// (candidate index, segment, elevation).
+fn pline_segments(cands: &[Cand], o: &Opts, gone: &[bool]) -> Vec<(usize, Segment, f64)> {
+    if !o.plines {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for (i, c) in cands.iter().enumerate() {
+        let EntityKind::LwPolyline(pl) = &c.e.kind else { continue };
+        if gone.get(i).copied().unwrap_or(true) || !pl.elevation.is_finite() {
+            continue;
+        }
+        let segs = Polyline { vertices: pl.vertices.clone(), closed: pl.closed }.segments();
+        out.extend(segs.into_iter().map(|g| (i, g, pl.elevation)));
+    }
+    out
+}
+
+/// Sorted intervals merged where they overlap or touch.
+fn union(mut iv: Vec<(f64, f64)>, tol: f64) -> Vec<(f64, f64)> {
+    iv.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    for (a, b) in iv {
+        match out.last_mut() {
+            Some(l) if a <= l.1 + tol => l.1 = l.1.max(b),
+            _ => out.push((a, b)),
+        }
+    }
+    out
+}
+
+fn line_rec(i: usize, prop: u32, a: Vec2, b: Vec2, z: f64, q: f64) -> Option<LineRec> {
+    let len = a.dist(b);
+    if !a.is_finite() || !b.is_finite() || len.is_nan() || len <= q {
+        return None;
+    }
+    let mut u = (b - a) * (1.0 / len);
+    let mut theta = u.angle();
+    if theta < SEAM {
+        theta += std::f64::consts::PI;
+        u = u * -1.0;
+    } else if theta >= SEAM + std::f64::consts::PI {
+        theta -= std::f64::consts::PI;
+        u = u * -1.0;
+    }
+    Some(LineRec { i, prop, theta, u, a, b, z, len, seg: false })
 }
 
 /// Lines on one infinite line: delete those lying on another, combine partial overlaps (and
@@ -286,21 +337,13 @@ fn lines(cands: &[Cand], o: &Opts, gone: &mut [bool], changed: &mut HashMap<usiz
         if gone.get(i).copied().unwrap_or(true) || c.protected || !l.a.is_finite() || !l.b.is_finite() || (l.a.z - l.b.z).abs() > q {
             continue;
         }
-        let (a, b) = (l.a.xy(), l.b.xy());
-        let len = a.dist(b);
-        if len.is_nan() || len <= q {
-            continue;
+        recs.extend(line_rec(i, c.prop, l.a.xy(), l.b.xy(), l.a.z, q));
+    }
+    for (i, g, z) in pline_segments(cands, o, gone) {
+        let (Segment::Line(l), Some(c)) = (g, cands.get(i)) else { continue };
+        if let Some(r) = line_rec(i, c.prop, l.a, l.b, z, q) {
+            recs.push(LineRec { seg: true, ..r });
         }
-        let mut u = (b - a) * (1.0 / len);
-        let mut theta = u.angle();
-        if theta < SEAM {
-            theta += std::f64::consts::PI;
-            u = u * -1.0;
-        } else if theta >= SEAM + std::f64::consts::PI {
-            theta -= std::f64::consts::PI;
-            u = u * -1.0;
-        }
-        recs.push(LineRec { i, prop: c.prop, theta, u, a, b, z: l.a.z, len });
     }
     if recs.len() < 2 {
         return;
@@ -358,15 +401,31 @@ fn collinear(members: &[&LineRec], cands: &[Cand], o: &Opts, gone: &mut [bool], 
     let q = o.q();
     let Some(r) = members.iter().max_by(|x, y| x.len.total_cmp(&y.len)) else { return };
     let (origin, u, n) = (r.a, r.u, r.u.perp());
-    // (t0, t1, index into cands)
-    let mut iv: Vec<(f64, f64, usize)> = members
+    // (t0, t1, index into cands, polyline segment)
+    let all: Vec<(f64, f64, usize, bool)> = members
         .iter()
         .filter(|m| (n.dot(m.a - origin)).abs() <= q && (n.dot(m.b - origin)).abs() <= q && (m.z - r.z).abs() <= q)
         .map(|m| {
             let (ta, tb) = (u.dot(m.a - origin), u.dot(m.b - origin));
-            (ta.min(tb), ta.max(tb), m.i)
+            (ta.min(tb), ta.max(tb), m.i, m.seg)
         })
         .collect();
+    // Lines lying on polyline segments go; the polylines stay as they are.
+    let covers = union(all.iter().filter(|x| x.3).map(|x| (x.0, x.1)).collect(), q);
+    let mut iv: Vec<(f64, f64, usize)> = Vec::new();
+    for (t0, t1, i, seg) in all {
+        if seg {
+            continue;
+        }
+        if covers.iter().any(|c| c.0 <= t0 + q && t1 <= c.1 + q) {
+            if let Some(g) = gone.get_mut(i) {
+                *g = true;
+                rep.overlapping += 1;
+            }
+        } else {
+            iv.push((t0, t1, i));
+        }
+    }
     if iv.len() < 2 {
         return;
     }
@@ -421,6 +480,16 @@ fn arcs(cands: &[Cand], o: &Opts, gone: &mut [bool], changed: &mut HashMap<usize
     let q = o.q();
     let g = q.max(1e-9);
     let cell = |x: f64| (x / g).round() as i64;
+    let key = |prop: u32, center: Vec3, r: f64| {
+        let ok = center.is_finite()
+            && r.is_finite()
+            && r > q
+            && (center.x / g).abs() <= 1e15
+            && (center.y / g).abs() <= 1e15
+            && (r / g) <= 1e15
+            && (center.z / g).abs() <= 1e15;
+        ok.then(|| (prop, cell(center.x), cell(center.y), cell(r), cell(center.z)))
+    };
     let mut buckets: HashMap<(u32, i64, i64, i64, i64), Vec<usize>> = HashMap::new();
     for (i, c) in cands.iter().enumerate() {
         if gone.get(i).copied().unwrap_or(true) || c.protected {
@@ -431,22 +500,27 @@ fn arcs(cands: &[Cand], o: &Opts, gone: &mut [bool], changed: &mut HashMap<usize
             EntityKind::Circle(c) => (c.center, c.radius),
             _ => continue,
         };
-        if !center.is_finite()
-            || !r.is_finite()
-            || r <= q
-            || (center.x / g).abs() > 1e15
-            || (center.y / g).abs() > 1e15
-            || (r / g) > 1e15
-            || (center.z / g).abs() > 1e15
-        {
-            continue;
+        if let Some(k) = key(c.prop, center, r) {
+            buckets.entry(k).or_default().push(i);
         }
-        buckets.entry((c.prop, cell(center.x), cell(center.y), cell(r), cell(center.z))).or_default().push(i);
+    }
+    // Polyline arc segments, as (start, end ≥ start) on [0, 2π) + sweep.
+    let mut covers: HashMap<(u32, i64, i64, i64, i64), Vec<(f64, f64)>> = HashMap::new();
+    for (i, seg, z) in pline_segments(cands, o, gone) {
+        let (Segment::Arc { arc: a, .. }, Some(c)) = (seg, cands.get(i)) else { continue };
+        if let Some(k) = key(c.prop, Vec3::new(a.center.x, a.center.y, z), a.radius) {
+            let s = norm_angle(a.start);
+            covers.entry(k).or_default().push((s, s + ccw_sweep(a.start, a.end)));
+        }
     }
     let mut keys: Vec<_> = buckets.keys().copied().collect();
     keys.sort_unstable();
     for key in keys {
         let Some(group) = buckets.get(&key) else { continue };
+        let group = match covers.remove(&key) {
+            Some(cv) => on_pline_arcs(group, cv, cands, o, gone, rep),
+            None => group.clone(),
+        };
         if group.len() < 2 {
             continue;
         }
@@ -464,8 +538,39 @@ fn arcs(cands: &[Cand], o: &Opts, gone: &mut [bool], changed: &mut HashMap<usize
             }
             continue;
         }
-        same_circle(group, cands, o, gone, changed, rep);
+        same_circle(&group, cands, o, gone, changed, rep);
     }
+}
+
+/// Deletes the arcs of `group` lying on polyline arc segments `cv` of the same circle; returns
+/// the rest.
+fn on_pline_arcs(group: &[usize], cv: Vec<(f64, f64)>, cands: &[Cand], o: &Opts, gone: &mut [bool], rep: &mut Report) -> Vec<usize> {
+    let radius = group.iter().find_map(|i| match cands.get(*i).map(|c| &c.e.kind) {
+        Some(EntityKind::Arc(a)) => Some(a.radius),
+        _ => None,
+    });
+    let Some(radius) = radius else { return group.to_vec() };
+    let atol = (o.q() / radius).min(1.0);
+    let cv = union(cv, atol);
+    let mut rest = Vec::new();
+    for &i in group {
+        let Some(EntityKind::Arc(a)) = cands.get(i).map(|c| &c.e.kind) else {
+            rest.push(i);
+            continue;
+        };
+        let s = norm_angle(a.start);
+        let e = s + ccw_sweep(a.start, a.end);
+        // A segment may start before 2π and wrap past it.
+        let covered = cv.iter().any(|c| [0.0, -TAU].iter().any(|k| c.0 + k <= s + atol && e <= c.1 + k + atol));
+        match gone.get_mut(i) {
+            Some(g) if covered => {
+                *g = true;
+                rep.overlapping += 1;
+            }
+            _ => rest.push(i),
+        }
+    }
+    rest
 }
 
 fn same_circle(group: &[usize], cands: &[Cand], o: &Opts, gone: &mut [bool], changed: &mut HashMap<usize, EntityKind>, rep: &mut Report) {
