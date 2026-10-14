@@ -117,7 +117,8 @@ fn entities(d: &Drawing) -> impl Iterator<Item = &std::sync::Arc<cadcraft_doc::E
     d.model.iter().chain(d.layouts.iter().flat_map(|l| l.entities.iter())).chain(d.blocks.values().flat_map(|b| b.entities.iter())).take(5_000_000)
 }
 
-/// Upper-case names of blocks reachable from model space, the layouts and dimensions.
+/// Upper-case names of blocks reachable from model space, the layouts and dimensions (and the
+/// source and replacement blocks an associative array's parameters name).
 fn used_blocks(d: &Drawing) -> HashSet<String> {
     let mut used = HashSet::new();
     let mut frontier: Vec<String> = Vec::new();
@@ -143,6 +144,11 @@ fn used_blocks(d: &Drawing) -> HashSet<String> {
                     EntityKind::MLeader(m) => frontier.extend(m.block.as_ref().map(|b| b.block.clone())),
                     _ => {}
                 }
+            }
+            // A replacement outside a shrunk array's item grid comes back when the array grows.
+            if let Some(a) = &b.array {
+                frontier.push(a.source.clone());
+                frontier.extend(a.replaced.iter().map(|r| r.block.clone()));
             }
         }
     }
