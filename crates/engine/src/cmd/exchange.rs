@@ -330,7 +330,8 @@ fn run_preview(s: &mut Session, p: &Value) -> Result<Value> {
     let tol = 0.5 / (px_per_paper_unit * est);
     let ropts = cadcraft_render::Options {
         tolerance: if tol.is_finite() && tol > 0.0 { tol } else { 0.01 },
-        min_dash: 0.0,
+        // Dash patterns under half a pixel read as continuous lines (#1068).
+        min_dash: if tol.is_finite() && tol > 0.0 { tol } else { 0.0 },
         text: true,
         fill: true,
         lineweights,

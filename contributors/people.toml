@@ -61,3 +61,8 @@ sync_github_name = false
 real_name = "Chester Fung"
 display_name = "Chester Fung"
 sync_github_name = true
+
+[people.belchiordameao]
+real_name = "Belchior Dameao de Araujo Neto"
+display_name = "Belchior Dameao de Araujo Neto"
+sync_github_name = false

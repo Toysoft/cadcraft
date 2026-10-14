@@ -420,7 +420,9 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     let tolerance = if tol.is_finite() && tol > 0.0 { tol } else { ropts.tolerance };
     // Relative point sizes follow the plotted window (else the extents).
     let view_height = window.map(|w| w.height()).unwrap_or(0.0);
-    let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, view_height, ..ropts });
+    // A dash pattern that repeats in less than the chord tolerance (0.05 mm on paper) is drawn as
+    // a continuous line: one primitive instead of one per dash (#1068).
+    let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, min_dash: tolerance, view_height, ..ropts });
     let b = window.unwrap_or(list.bounds);
     let s = plot_scale(&b, &sheet, fit, o.scale);
     let map = if fit || matches!(space, Space::Model) {
