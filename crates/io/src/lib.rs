@@ -97,8 +97,26 @@ pub fn write_with(d: &Drawing, name: &str, opts: &SaveOptions) -> Result<Vec<u8>
         // The DWG bridge reads our R2000 DXF and writes the DWG at the version asked for. Without
         // one, at least 2004: R2000 DWG has no true colours, transparency, table styles or
         // gradients, so a drawing from an R2000 DXF doesn't lose them by default.
-        "dwg" if !opts.binary => {
+        "dwg" | "dwt" if !opts.binary => {
             let version = opts.version.unwrap_or_else(|| version.max(Version::R2004));
+            // The bridge's DXF omits ACDSDATA before 2013. Check the live modeler entities
+            // before constructing it, while we can still see their binary geometry records.
+            if version < Version::R2013 {
+                let stored = d.foreign.data_store_entities();
+                let stores = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).chain(d.blocks.values().map(|b| &b.entities));
+                for e in stores.flat_map(|s| s.iter()) {
+                    if let cadcraft_doc::EntityKind::Unknown(u) = &e.kind
+                        && ["3DSOLID", "REGION", "BODY"].iter().any(|t| u.dxf_type.eq_ignore_ascii_case(t))
+                        && stored.contains(&e.handle)
+                        && !u.tags.iter().any(|t| t.code == 1 && !t.value.trim().is_empty())
+                    {
+                        return Err(IoError::Format(format!(
+                            "DWG save cancelled: {} binary geometry needs version 2013 or later. Use SAVEAS to DXF at the drawing's current version.",
+                            u.dxf_type
+                        )));
+                    }
+                }
+            }
             cadcraft_dwg::dxf_to_dwg_as(dxf_write::dwg_bridge(d, version).as_bytes(), version.code()).map_err(IoError::Format)
         }
         e if opts.binary => Err(IoError::Format(format!("binary output is for DXF files, not `{e}`"))),

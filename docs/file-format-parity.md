@@ -1,14 +1,15 @@
 # File-format parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and written) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (REGION preservation and refusal of incomplete DWG saves, #1019) · **Target:** Autodesk AutoCAD 2027
 
 Every format AutoCAD 2027 reads or writes, with CADCraft's support, fidelity and tests. Work
 items are in [gaps.md](gaps.md#file-formats); the weighted score feeds
 [target-app-parity.md](target-app-parity.md).
 
 **Headline (estimated):** file formats ≈ **30%** of AutoCAD's. Opening the commonest 2D DXF/DWG
-drawings works, but saving is lossy: everything CADCraft doesn't model is dropped, and no test
-uses a real third-party file. DXF and DWG save at 2000–2018 (2018 by default, #421). Remaining: **≈ 170–280 Opus 5.5 hours**:
+drawings works, but exchange fidelity is incomplete and no test uses a real third-party file.
+DXF keeps foreign raw tags; DWG saves refuse unsupported entities and custom objects before
+overwriting the file (#1019). DXF and DWG save at 2000–2018 (2018 by default, #421). Remaining: **≈ 170–280 Opus 5.5 hours**:
 ≈ 40–60 h for DXF/DWG fidelity (the part that decides beta), ≈ 110–180 h for the other formats
 below, and ≈ 20–40 h for 3D exchange formats that wait for 3D modelling.
 
@@ -31,7 +32,7 @@ below, and ≈ 20–40 h for 3D exchange formats that wait for 3D modelling.
 
 AutoCAD 2027 opens every DWG version from R2.0 onward and saves 2018 (AC1032, still the current
 DWG format), 2013, 2010, 2007, 2004, 2000 and R14. CADCraft reads DWG by converting it to DXF
-with the `acadrust` 0.6.3 crate and reading that DXF; it saves by writing its own R2000 DXF and
+with the `acadrust` 0.6.4 crate and reading that DXF; it saves by writing its own R2000 DXF and
 converting it to a DWG of the chosen version (#421): SAVEAS `version`, else the drawing's own
 version (the file's `$ACADVER`, 2018 for a new drawing), at least 2004 unless 2000 is asked for.
 The bridge repairs two acadrust 0.6.3 gaps in 2010+ DWG: merged table cells and table-style
@@ -51,7 +52,11 @@ title/header suppression.
 | Web build | — | — | **no** (error: "save as DXF") | no | — |
 
 Everything lost in the DXF read/write paths below is also lost through DWG, plus whatever
-`acadrust`'s own DXF output omits (proxy objects, ACIS data, custom objects: not measured). User
+`acadrust`'s own DXF output omits (proxy and custom objects: not measured). Imported REGION,
+3DSOLID and BODY geometry is preserved as inline SAT or binary ACDSDATA where supported.
+QSAVE, SAVEAS and document.bytes refuse known unsupported DWG/DWT output before writing;
+unconvertible modeler data and binary-geometry downgrades are refused too, with a SAVEAS-to-DXF
+message. This does not recover data already omitted while opening a file. User
 report #57: a 10 MB DWG failed after about two minutes; limits now stop runaway conversions
 early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% write.**
 
@@ -84,8 +89,8 @@ early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% wr
 | IMAGE | yes, with IMAGEDEF | yes, with IMAGEDEF and IMAGEDEF_REACTOR | no attach command or display of the picture yet (FF10) |
 | WIPEOUT | yes | yes (#147, fixes #79) | |
 | MLINE (+ MLINESTYLE), HELIX, TOLERANCE | yes (#510, #420) | yes | |
-| REGION | other programs' REGIONs (ACIS data) kept as Unknown | our regions are written as closed polylines tagged with CADCraft xdata (#510; ACIS has no public spec) | |
-| 3DSOLID, BODY, SURFACE, MESH, SHAPE, UNDERLAY, OLE2FRAME, LIGHT, CAMERA, SECTION, POINTCLOUD, proxy entities | kept as Unknown (raw tags) | written back as read, with their CLASS records (#528); **dropped by DWG save** (acadrust) | only their layer follows edits |
+| REGION | other programs' REGIONs (ACIS data) kept as Unknown | foreign geometry preserved in DXF; inline SAT carried through DWG 2000–2018 where convertible, binary ACDSDATA retained in DWG 2013/2018; unsupported DWG output refused (#1019). Our regions are written as closed polylines tagged with CADCraft xdata (#510) | synthetic geometry and repeated saves tested; no native ACIS editing |
+| 3DSOLID, BODY, SURFACE, MESH, SHAPE, UNDERLAY, OLE2FRAME, LIGHT, CAMERA, SECTION, POINTCLOUD, proxy entities | kept as Unknown (raw tags) | DXF written back as read, with CLASS records (#528); DWG preflight refuses unpreserved types (#1019); 3DSOLID/BODY modeler payloads follow REGION's preservation checks | only their layer follows edits |
 | Header variables | all read | 36 written | AutoCAD writes about 280 |
 | Tables: LAYER (+ transparency, description), LTYPE, STYLE, DIMSTYLE, BLOCK_RECORD | yes | yes | |
 | Tables: VPORT, VIEW, UCS, APPID | yes | yes: saved viewport configurations (#504), named views, UCSs | UCS elevation lost |
@@ -131,10 +136,16 @@ external validator runs in CI (ezdxf's audit was run by hand once, 2026-10-06). 
 a licensed real-file corpus with an open → save → re-open → compare test per file, and checking
 our output in AutoCAD black-box.
 
+Issue #1019 adds synthetic REGION geometry round trips at every DWG write version, repeated
+binary-geometry saves at 2013/2018, rejected geometry conversions and downgrades, and checks
+that refused saves keep the original file, dirty state, title and undo history. The preflight
+also checks the drawing outside the Block Editor, and offers DXF as the preservation fallback.
+
 ## Revision history
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | REGION: inline geometry no longer falsely reported as lost; DWG/DWT saves refuse unsupported entities, custom objects and unpreservable modeler conversions before writing or marking saved (#1019) |
 | 2026-10-12 | minor | PDF output: object transparency plotted as PDF alpha (`/ExtGState` `/ca` `/CA`) when the page setup's or the plot's "Plot transparency" is on; PNG plots blend it, SVG uses `opacity`; plots without it are unchanged byte for byte |
 | 2026-10-12 | minor | DXF/DWG save: the Model layout's plot settings are written as CADCraft plots model space, drawing extents scaled to fit (PLOTSETTINGS 74 = 1, 75 = 0), instead of plot type 5 "Layout information", which other programs' Plot dialogs can't use for model space |
 | 2026-10-12 | minor | VIEWPORT frozen layers also written and read as AutoCAD's group 341 layer handles, so third-party viewers honour per-viewport freezing in DXF (DWG converter gap noted) |

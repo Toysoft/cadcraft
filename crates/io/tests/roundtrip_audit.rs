@@ -954,13 +954,27 @@ fn hostile_raw_data_never_panics() {
 }
 
 /// Through the DWG bridge (acadrust): what the DWG writer and reader keep of the same data.
-/// Entities and objects of custom classes, xdata on table records and blocks, entities' colour
-/// book names and reactors are not kept there (acadrust gaps); the rest is.
+/// Unsupported custom entities and objects refuse the save. The supported fixture still checks
+/// extension dictionaries and XRECORDs; table/block xdata and entity reactors have codec gaps.
 #[cfg(not(target_arch = "wasm32"))]
 #[test]
 fn dwg_keeps_extension_dictionaries_xrecords_and_entity_xdata() {
     let via_dwg = |d: &Drawing| cadcraft_io::read(&cadcraft_io::write(d, "x.dwg").expect("write DWG"), "x.dwg").expect("read DWG");
-    let d = via_dwg(&via_dwg(&read_dxf(fixture().as_bytes()).expect("read fixture")));
+    let original = read_dxf(fixture().as_bytes()).expect("read fixture");
+    let error = cadcraft_io::write(&original, "x.dwg").expect_err("custom entities cannot be dropped by a successful save");
+    assert!(error.to_string().contains("ACME_WIDGET") && error.to_string().contains("DXF"));
+    let mut keep = true;
+    let supported: Vec<Tag> = cadcraft_dxf::parse(fixture().as_bytes())
+        .expect("parse fixture")
+        .into_iter()
+        .filter(|t| {
+            if t.code == 0 {
+                keep = !matches!(t.str().as_str(), "ACME_WIDGET" | "ACME_OBJECT");
+            }
+            keep
+        })
+        .collect();
+    let d = via_dwg(&via_dwg(&read_dxf(cadcraft_dxf::write_ascii(&supported).as_bytes()).expect("read supported fixture")));
     let o = Out::new(&write_dxf(&d));
     assert_eq!(o.dangling(), Vec::<String>::new());
     let line = o.handle("2A").expect("line").1;

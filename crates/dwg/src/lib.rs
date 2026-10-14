@@ -265,42 +265,26 @@ mod native {
         }
     }
 
-    /// Leave out what acadrust can't write as this DWG version: other programs' custom entities
-    /// and objects without raw DWG data of that version. acadrust 0.6.4 refuses the whole file
-    /// for one of them (0.6.3 left them out); CADCraft already tells the user which entity types
-    /// a DWG doesn't keep (`not_saved`), so the rest of the drawing is written. Returns how many.
-    fn drop_unwritable(doc: &mut acadrust::CadDocument) -> usize {
-        let version = doc.version;
-        let unwritable: Vec<acadrust::Handle> = doc
-            .entities()
-            .filter_map(|e| match e {
-                acadrust::entities::EntityType::Unknown(u)
-                    if u.raw_dwg_data.is_none() || u.dwg_source_version.is_some_and(|v| v != version) || version == acadrust::DxfVersion::AC1009 =>
-                {
-                    Some(u.common.handle)
-                }
-                _ => None,
-            })
-            .collect();
-        for h in &unwritable {
-            doc.remove_entity(*h);
+    /// Modeler conversions must not turn an opaque body into an empty entity. The codec keeps
+    /// binary geometry from 2013 on, and converts inline SAT to binary for those versions.
+    fn check_modeler_data(doc: &acadrust::CadDocument) -> Result<(), String> {
+        use acadrust::entities::EntityType;
+        let modern = doc.version >= acadrust::DxfVersion::AC1027;
+        for entity in doc.entities() {
+            let (name, data) = match entity {
+                EntityType::Region(e) => ("REGION", &e.acis_data),
+                EntityType::Solid3D(e) => ("3DSOLID", &e.acis_data),
+                EntityType::Body(e) => ("BODY", &e.acis_data),
+                _ => continue,
+            };
+            let binary = data.is_binary && !data.sab_data.is_empty();
+            if !data.has_data() || (binary && !modern) || (modern && !binary && data.parse_sat().is_none()) {
+                return Err(format!(
+                    "DWG save cancelled: {name} geometry cannot be preserved at this version. Use SAVEAS to DXF at the drawing's current version."
+                ));
+            }
         }
-        let objects: Vec<acadrust::Handle> = doc
-            .objects
-            .iter()
-            .filter_map(|(h, o)| match o {
-                acadrust::objects::ObjectType::Unknown { raw_dwg_data, raw_dwg_version, .. }
-                    if raw_dwg_data.is_none() || raw_dwg_version.is_some_and(|v| v != version) || version == acadrust::DxfVersion::AC1009 =>
-                {
-                    Some(*h)
-                }
-                _ => None,
-            })
-            .collect();
-        for h in &objects {
-            doc.objects.remove(h);
-        }
-        unwritable.len() + objects.len()
+        Ok(())
     }
 
     /// Header variables the DWG reader fills in but acadrust's DXF writer (0.6.3) leaves out of
@@ -399,10 +383,14 @@ mod native {
             None => {}
         }
         table_style_rows(&mut doc, true);
-        drop_unwritable(&mut doc);
+        std::panic::catch_unwind(AssertUnwindSafe(|| check_modeler_data(&doc))).map_err(|_| {
+            "DWG save cancelled: the modeler geometry could not be converted. Use SAVEAS to DXF at the drawing's current version.".to_string()
+        })??;
+        // Let the unmodified writer refuse unsupported custom entities and objects. Removing
+        // them here would make a successful save overwrite the original with an incomplete file.
         std::panic::catch_unwind(AssertUnwindSafe(|| acadrust::DwgWriter::write_to_vec(&doc)))
             .map_err(|_| "the DWG writer failed on this drawing".to_string())?
-            .map_err(|e| format!("DWG write: {e}"))
+            .map_err(|e| format!("DWG save cancelled: {e}. Use SAVEAS to DXF at the drawing's current version."))
     }
 }
 

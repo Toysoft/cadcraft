@@ -11,11 +11,9 @@ use cadcraft_doc::EntityKind;
 const SAB_HEX: &str = "414349532042696E61727946696C65000102030405060708090A0B0C0D0E0F456E642D6F662D414349532D64617461";
 
 /// A 2018 DXF with two 3D solids (2A, 2B) and their data store records.
-fn dxf() -> String {
+fn dxf(kind: &str) -> String {
     let solid = |h: &str| {
-        format!(
-            "0\n3DSOLID\n5\n{h}\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbModelerGeometry\n290\n0\n2\n{{00000000-0000-0000-0000-000000000000}}\n100\nAcDb3dSolid\n350\n0\n"
-        )
+        format!("0\n{kind}\n5\n{h}\n330\n1F\n100\nAcDbEntity\n8\n0\n100\nAcDbModelerGeometry\n290\n0\n2\n{{00000000-0000-0000-0000-000000000000}}\n")
     };
     let record = |h: &str| {
         format!("0\nACDSRECORD\n90\n1\n2\nAcDbDs::ID\n280\n10\n320\n{h}\n2\nASM_Data\n280\n15\n94\n{}\n310\n{SAB_HEX}\n", SAB_HEX.len() / 2)
@@ -64,7 +62,7 @@ fn asm_data(text: &str) -> Vec<(String, String)> {
 
 #[test]
 fn dxf_keeps_the_data_store_and_drops_records_of_deleted_entities() {
-    let mut d = cadcraft_io::read_dxf(dxf().as_bytes()).unwrap();
+    let mut d = cadcraft_io::read_dxf(dxf("3DSOLID").as_bytes()).unwrap();
     assert_eq!(d.foreign.data_store_entities().len(), 2);
     let out = String::from_utf8(cadcraft_io::write(&d, "x.dxf").unwrap()).unwrap();
     assert_eq!(asm_data(&out), vec![("2A".to_string(), SAB_HEX.to_string()), ("2B".to_string(), SAB_HEX.to_string())]);
@@ -91,7 +89,7 @@ fn dxf_keeps_the_data_store_and_drops_records_of_deleted_entities() {
 
 #[test]
 fn dwg_keeps_the_solids_geometry() {
-    let d = cadcraft_io::read_dxf(dxf().as_bytes()).unwrap();
+    let d = cadcraft_io::read_dxf(dxf("3DSOLID").as_bytes()).unwrap();
     let dwg = cadcraft_io::write(&d, "x.dwg").unwrap();
     // The DWG read back (as the bridge's DXF) binds the same bytes to both solids.
     let back = String::from_utf8(cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
@@ -101,4 +99,62 @@ fn dwg_keeps_the_solids_geometry() {
     // And reopening it in CADCraft keeps them for the next save.
     let again = cadcraft_io::read(&dwg, "x.dwg").unwrap();
     assert_eq!(again.foreign.data_store_entities().len(), 2);
+}
+
+#[test]
+fn regions_keep_their_binary_geometry_across_repeated_dwg_saves() {
+    for version in [cadcraft_io::Version::R2013, cadcraft_io::Version::R2018] {
+        let mut d = cadcraft_io::read_dxf(dxf("REGION").as_bytes()).unwrap();
+        for _ in 0..2 {
+            let dwg = cadcraft_io::write_with(&d, "regions.dwg", &cadcraft_io::SaveOptions { version: Some(version), binary: false }).unwrap();
+            let back = String::from_utf8(cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+            let mut got = asm_data(&back);
+            got.sort();
+            assert_eq!(got, vec![("2A".to_string(), SAB_HEX.to_string()), ("2B".to_string(), SAB_HEX.to_string())]);
+            d = cadcraft_io::read(&dwg, "regions.dwg").unwrap();
+            assert_eq!(d.model.iter().filter(|e| matches!(&e.kind, EntityKind::Unknown(u) if u.dxf_type == "REGION")).count(), 2);
+        }
+    }
+}
+
+#[test]
+fn a_dwg_downgrade_cannot_discard_binary_region_geometry() {
+    let d = cadcraft_io::read_dxf(dxf("REGION").as_bytes()).unwrap();
+    for version in [cadcraft_io::Version::R2000, cadcraft_io::Version::R2004, cadcraft_io::Version::R2007, cadcraft_io::Version::R2010] {
+        for name in ["regions.dwg", "regions.dwt"] {
+            let error = cadcraft_io::write_with(&d, name, &cadcraft_io::SaveOptions { version: Some(version), binary: false }).unwrap_err();
+            assert!(error.to_string().contains("REGION") && error.to_string().contains("DXF"), "{error}");
+        }
+    }
+    let backup = String::from_utf8(cadcraft_io::write(&d, "regions.dxf").unwrap()).unwrap();
+    assert_eq!(asm_data(&backup).len(), 2);
+}
+
+#[test]
+fn regions_in_blocks_and_layouts_keep_their_geometry() {
+    for in_block in [true, false] {
+        let mut d = cadcraft_io::read_dxf(dxf("REGION").as_bytes()).unwrap();
+        let entities = std::mem::take(&mut d.model);
+        if in_block {
+            let mut block = cadcraft_doc::Block::new("Regions");
+            block.entities = entities;
+            d.blocks.insert("Regions".into(), std::sync::Arc::new(block));
+        } else {
+            let mut layout = cadcraft_doc::Layout::new("Regions", 1);
+            layout.entities = entities;
+            d.layouts.push(layout);
+        }
+        let dwg = cadcraft_io::write(&d, "regions.dwg").unwrap();
+        let reopened = cadcraft_io::read(&dwg, "regions.dwg").unwrap();
+        let entities = if in_block {
+            &reopened.block("Regions").unwrap().entities
+        } else {
+            &reopened.layouts.iter().find(|l| l.name == "Regions").unwrap().entities
+        };
+        assert_eq!(entities.iter().filter(|e| matches!(&e.kind, EntityKind::Unknown(u) if u.dxf_type == "REGION")).count(), 2);
+        let back = String::from_utf8(cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+        let mut got = asm_data(&back);
+        got.sort();
+        assert_eq!(got, vec![("2A".to_string(), SAB_HEX.to_string()), ("2B".to_string(), SAB_HEX.to_string())]);
+    }
 }

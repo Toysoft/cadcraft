@@ -137,6 +137,12 @@ fn write_bytes(s: &Session, cmd: &str, path: &str, opts: &SaveAs) -> Result<Vec<
     }
     // A drawing file is the drawing outside the Block Editor; an image is what is shown.
     let d: &cadcraft_doc::Drawing = if is_drawing_file(path) { s.state()?.drawing() } else { s.doc()? };
+    if drops_unknown(path) {
+        let version = opts.version.unwrap_or_else(|| drawing_version(s, path));
+        if let Some(message) = not_saved_message(&not_saved_as(d, version)) {
+            return Err(bad(cmd, message));
+        }
+    }
     let r = if *opts == SaveAs::default() {
         (hooks.write)(d, path)
     } else {
@@ -163,8 +169,8 @@ pub fn specs() -> Vec<CommandSpec> {
             .noundo(),
         CommandSpec::new("close", "Close", run_close).menu(&["File", "Close"]).key("Cmd+W").params("{index?}").noundo(),
         CommandSpec::new("closeall", "Close All", run_closeall).menu(&["File", "Close All"]).enabled(always).noundo(),
-        CommandSpec::new("qsave", "Save", run_qsave_reporting).menu(&["File", "Save"]).key("Cmd+S").alias(&["save"]).params("{path?}").noundo(),
-        CommandSpec::new("saveas", "Save As...", run_saveas_reporting)
+        CommandSpec::new("qsave", "Save", run_save).menu(&["File", "Save"]).key("Cmd+S").alias(&["save"]).params("{path?}").noundo(),
+        CommandSpec::new("saveas", "Save As...", run_saveas)
             .menu(&["File", "Save As..."])
             .key("Cmd+Shift+S")
             .params("{path, version?: 2000|2004|2007|2010|2013|2018, binary?: bool}")
@@ -467,8 +473,11 @@ fn run_saveas(s: &mut Session, p: &Value) -> Result<Value> {
 /// The version a drawing is saved in at `path` when none is asked for: its `$ACADVER` (2018 by
 /// default), and for DWG at least 2004 (the io layer's rule: R2000 DWG has no true colours).
 fn drawing_version(s: &Session, path: &str) -> Version {
-    let v =
-        s.doc().ok().and_then(|d| d.header.get("ACADVER").and_then(cadcraft_doc::HVal::as_str).and_then(Version::for_acadver)).unwrap_or_default();
+    let v = s
+        .state()
+        .ok()
+        .and_then(|st| st.drawing().header.get("ACADVER").and_then(cadcraft_doc::HVal::as_str).and_then(Version::for_acadver))
+        .unwrap_or_default();
     if is_dxf(path) { v } else { v.max(Version::R2004) }
 }
 
@@ -485,20 +494,12 @@ fn run_switch(s: &mut Session, p: &Value) -> Result<Value> {
 fn run_bytes(s: &mut Session, p: &Value) -> Result<Value> {
     let fmt = str_param(p, "format").unwrap_or("dxf");
     let opts = save_options("document.bytes", p)?;
-    let version = opts.version.unwrap_or_else(|| drawing_version(s, &format!("drawing.{fmt}")));
-    let lost = not_saved_as(s.doc()?, version);
     let bytes = write_bytes(s, "document.bytes", &format!("drawing.{fmt}"), &opts)?;
-    let mut r = json!({ "data": base64_encode(&bytes), "bytes": bytes.len() });
-    if drops_unknown(&format!("drawing.{fmt}")) {
-        report_not_saved(s, &mut r, &lost);
-    }
-    Ok(r)
+    Ok(json!({ "data": base64_encode(&bytes), "bytes": bytes.len() }))
 }
 
-/// Entities a DXF or DWG file doesn't keep: those of object types CADCraft doesn't model
-/// (3DSOLID, MULTILEADER… read from other programs' files and kept in the drawing, but
-/// not written), counted by DXF type across model space, layouts and block definitions. Saved
-/// at the drawing's own version; see [`not_saved_as`].
+/// Foreign entities a DWG save cannot preserve, counted across model space, layouts and block
+/// definitions. DXF keeps their raw tags. Uses the drawing's own version; see [`not_saved_as`].
 pub fn not_saved(d: &Drawing) -> std::collections::BTreeMap<String, usize> {
     let v = d.header.get("ACADVER").and_then(cadcraft_doc::HVal::as_str).and_then(Version::for_acadver).unwrap_or_default();
     not_saved_as(d, v)
@@ -508,15 +509,18 @@ pub fn not_saved(d: &Drawing) -> std::collections::BTreeMap<String, usize> {
 /// store section, which is written back with the drawing (`Foreign::data_store`).
 const MODELER_TYPES: [&str; 3] = ["3DSOLID", "REGION", "BODY"];
 
-/// [`not_saved`] for a file saved as `version`. From 2013 on, a 3D solid, region or body the data
-/// store has a record for keeps its geometry and is not counted.
+/// [`not_saved`] for a file saved as `version`. Inline SAT modeler geometry is supported too;
+/// the bridge checks that it can convert it to SAB when writing 2013 and later. Binary geometry
+/// in the data store is kept from 2013 on, and cannot be silently discarded by a downgrade.
 pub fn not_saved_as(d: &Drawing, version: Version) -> std::collections::BTreeMap<String, usize> {
     let mut out: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
     let stored = if version >= Version::R2013 { d.foreign.data_store_entities() } else { Default::default() };
     let stores = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).chain(d.blocks.values().map(|b| &b.entities));
     for e in stores.flat_map(|s| s.iter()) {
         if let cadcraft_doc::EntityKind::Unknown(u) = &e.kind {
-            if MODELER_TYPES.iter().any(|t| u.dxf_type.eq_ignore_ascii_case(t)) && stored.contains(&e.handle) {
+            if MODELER_TYPES.iter().any(|t| u.dxf_type.eq_ignore_ascii_case(t))
+                && (stored.contains(&e.handle) || u.tags.iter().any(|t| t.code == 1 && !t.value.trim().is_empty()))
+            {
                 continue;
             }
             let n = out.entry(u.dxf_type.clone()).or_insert(0);
@@ -526,17 +530,20 @@ pub fn not_saved_as(d: &Drawing, version: Version) -> std::collections::BTreeMap
     out
 }
 
-/// The command-line warning for [`not_saved`] entities, or `None` when the file keeps everything.
+/// The pre-save refusal for [`not_saved`] entities, or `None` when the file keeps everything.
 pub fn not_saved_message(lost: &std::collections::BTreeMap<String, usize>) -> Option<String> {
     if lost.is_empty() {
         return None;
     }
     let list: Vec<String> = lost.iter().map(|(t, n)| format!("{n} {t}")).collect();
-    Some(format!("Not saved in the DWG file (its writer can't write these object types yet; DXF keeps them): {}", list.join(", ")))
+    Some(format!(
+        "DWG save cancelled: the file cannot preserve {}. Use SAVEAS to DXF at the drawing's current version to keep these objects.",
+        list.join(", ")
+    ))
 }
 
-/// Whether saving to `path` leaves out the entities [`not_saved`] counts: DWG does (the DWG
-/// bridge drops types it doesn't know); DXF writes them back as read.
+/// Whether saving to `path` needs a check for the entities [`not_saved`] counts. DWG and DWT
+/// saves are refused if they cannot preserve them; DXF writes them back as read.
 pub fn drops_unknown(path: &str) -> bool {
     // Templates (.dwt) are written as DWG too.
     std::path::Path::new(path).extension().is_some_and(|e| e.eq_ignore_ascii_case("dwg") || e.eq_ignore_ascii_case("dwt"))
@@ -546,36 +553,6 @@ pub fn drops_unknown(path: &str) -> bool {
 fn is_drawing_file(path: &str) -> bool {
     let ext = std::path::Path::new(path).extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
     matches!(ext.as_str(), "dxf" | "dwg" | "dwt" | "")
-}
-
-/// Say on the command line what the file couldn't keep, and list it in the result's `notSaved`.
-fn report_not_saved(s: &mut Session, r: &mut Value, lost: &std::collections::BTreeMap<String, usize>) {
-    let Some(msg) = not_saved_message(lost) else { return };
-    s.echo(msg);
-    if let Some(o) = r.as_object_mut() {
-        o.insert("notSaved".into(), json!(lost));
-    }
-}
-
-/// Save, then report the entities the file couldn't keep (nothing is dropped silently).
-fn save_reporting(s: &mut Session, p: &Value, run: fn(&mut Session, &Value) -> Result<Value>) -> Result<Value> {
-    // What the file will hold depends on the version it is saved as (the data store from 2013).
-    let path = str_param(p, "path").map(str::to_string).or_else(|| s.state().ok().and_then(|st| st.path.clone())).unwrap_or_default();
-    let version = save_options("save", p).ok().and_then(|o| o.version).unwrap_or_else(|| drawing_version(s, &path));
-    let lost = s.doc().map(|d| not_saved_as(d, version)).unwrap_or_default();
-    let mut r = run(s, p)?;
-    if r.get("path").and_then(Value::as_str).is_some_and(drops_unknown) {
-        report_not_saved(s, &mut r, &lost);
-    }
-    Ok(r)
-}
-
-fn run_qsave_reporting(s: &mut Session, p: &Value) -> Result<Value> {
-    save_reporting(s, p, run_save)
-}
-
-fn run_saveas_reporting(s: &mut Session, p: &Value) -> Result<Value> {
-    save_reporting(s, p, run_saveas)
 }
 
 const B64: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
