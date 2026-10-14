@@ -229,6 +229,30 @@ fn seg_hits_box(a: Vec2, b: Vec2, bx: &Bounds2) -> bool {
     (0..4).any(|i| cadcraft_geom::line_line(&Line::new(a, b), &Line::new(c[i], c[(i + 1) % 4])).is_some())
 }
 
+/// A block's bounds are only a candidate filter: the empty space between its children and
+/// inside closed outlines is not geometry. Use the renderer's bounded expansion so nested
+/// transforms, array copies, visible attributes and hidden child layers match what is drawn.
+fn block_crosses_box(d: &Drawing, e: &Entity, bx: &Bounds2, tol: f64) -> bool {
+    let list = cadcraft_render::build_entities(d, std::iter::once(e), &cadcraft_render::Options { tolerance: tol, ..Default::default() });
+    list.prims.iter().any(|prim| {
+        let pts = list.points(prim);
+        match prim.kind {
+            cadcraft_render::Kind::Point => pts.first().is_some_and(|p| bx.contains(*p)),
+            cadcraft_render::Kind::Polyline => pts.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx))),
+            cadcraft_render::Kind::Tris | cadcraft_render::Kind::Mask => pts.chunks_exact(3).any(|tri| {
+                // Test each filled triangle separately; connecting different triangles would
+                // invent edges through the empty space between disjoint objects or across holes.
+                tri.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx)))
+                    || tri.last().zip(tri.first()).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx))
+                    || bx.corners().iter().any(|p| point_in_polygon(tri, *p))
+            }),
+            cadcraft_render::Kind::Infinite { ray } => {
+                pts.first().zip(pts.get(1)).is_some_and(|(base, dir)| cadcraft_render::clip::clip_infinite(*base, *dir, ray, bx).is_some())
+            }
+        }
+    })
+}
+
 /// Window selection (entirely inside) or crossing selection (inside or touching).
 pub fn select_window(d: &Drawing, space: &Space, bx: Bounds2, crossing: bool) -> Vec<Handle> {
     let ix = spatial::index(d, space);
@@ -251,11 +275,14 @@ pub(crate) fn window_tol(bx: &Bounds2) -> f64 {
 pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bounds2, crossing: bool, tol: f64) -> bool {
     let infinite = is_infinite(e);
     let eb = bounds_of(d, e, known);
-    if !infinite && bx.contains_box(&eb) {
+    if !infinite && bx.contains_box(&eb) && !(crossing && matches!(e.kind, EntityKind::Insert(_))) {
         return true;
     }
     if !crossing || (!infinite && !eb.intersects(bx)) {
         return false;
+    }
+    if matches!(e.kind, EntityKind::Insert(_)) {
+        return block_crosses_box(d, e, bx, tol);
     }
     let polys = hit_polylines(d, e, tol);
     let hit = polys.iter().any(|pl| {
@@ -265,8 +292,8 @@ pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bo
             pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx)))
         }
     });
-    // A crossing box entirely inside a text/block bounding rectangle also selects it.
-    if hit || (eb.contains_box(bx) && matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_))) {
+    // A crossing box entirely inside a text bounding rectangle also selects it.
+    if hit || (eb.contains_box(bx) && matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_))) {
         return true;
     }
     // SOLID/TRACE are filled polygons. A crossing window wholly within the
