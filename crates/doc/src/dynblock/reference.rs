@@ -23,12 +23,19 @@ const MAX_VALUES: usize = 10_000;
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Value {
-    /// A visibility state's name or a lookup value.
-    Text { value: String },
+    /// A visibility state's name or a lookup value, and where the parameter is when the record
+    /// says (an action may have carried it from where the dynamic block has it).
+    Text {
+        value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        at: Option<Vec3>,
+    },
     /// A point parameter's position.
     Point { at: Vec3 },
     /// A two-point parameter's points.
     Points { base: Vec3, end: Vec3 },
+    /// A flip parameter's reflection line and whether it is flipped.
+    Flip { base: Vec3, end: Vec3, flipped: bool },
 }
 
 /// A dynamic block reference.
@@ -91,16 +98,22 @@ fn entries(objects: &HashMap<Handle, &ForeignObject>, dict: Handle) -> Vec<(Stri
     out
 }
 
-/// A value XRECORD: its text (group 1) when it has one, else its points (10/20/30).
+/// A value XRECORD: its text (group 1) when it has one, with the parameter's position (a
+/// visibility or lookup grip's, 10/20/30) when it has that too; else its points; a flip
+/// parameter's also has its state, a group 70 after its points (the header's `70 25`, `70 104`
+/// come before them).
 fn value(o: &ForeignObject) -> Option<Value> {
-    if let Some(t) = o.tags.iter().find(|t| t.code == 1) {
-        return Some(Value::Text { value: t.value.clone() });
-    }
     let num = |code: i32, i: usize| {
         o.tags.iter().filter(|t| t.code == code).nth(i).and_then(|t| t.value.trim().parse::<f64>().ok()).filter(|v| v.is_finite())
     };
     let point = |i: usize| Some(Vec3::new(num(10, i)?, num(20, i)?, num(30, i).unwrap_or(0.0)));
+    if let Some(t) = o.tags.iter().find(|t| t.code == 1) {
+        return Some(Value::Text { value: t.value.clone(), at: point(0) });
+    }
+    let first_point = o.tags.iter().position(|t| t.code == 10).unwrap_or(o.tags.len());
+    let state = o.tags.get(first_point..).unwrap_or_default().iter().rev().find(|t| t.code == 70).map(|t| t.value.trim() == "1");
     match (point(0), point(1)) {
+        (Some(base), Some(end)) if state.is_some() => Some(Value::Flip { base, end, flipped: state == Some(true) }),
         (Some(base), Some(end)) => Some(Value::Points { base, end }),
         (Some(at), None) => Some(Value::Point { at }),
         _ => None,
@@ -133,6 +146,12 @@ pub fn reference(d: &Drawing, insert: Handle) -> Option<Reference> {
     Some(Reference { definition, values })
 }
 
+/// An angle (radians) as Properties shows it: degrees with AUPREC decimals.
+fn angle_text(d: &Drawing, a: f64) -> String {
+    let prec = usize::try_from(d.header.i64("AUPREC", 0).clamp(0, 8)).unwrap_or(0);
+    format!("{:.prec$}", a.to_degrees())
+}
+
 /// A number as the drawing shows lengths (LUPREC decimals).
 fn number(d: &Drawing, v: f64) -> String {
     let prec = usize::try_from(d.header.i64("LUPREC", 4).clamp(0, 8)).unwrap_or(4);
@@ -160,7 +179,7 @@ impl Current<'_> {
         let v = self.values.get(&node);
         match (&p.kind, property.to_ascii_lowercase().as_str()) {
             (ParameterKind::Visibility { states, .. }, "visibilitystate") => match v {
-                Some(Value::Text { value }) => Some(value.clone()),
+                Some(Value::Text { value, .. }) => Some(value.clone()),
                 _ => states.first().map(|s| s.name.clone()),
             },
             (ParameterKind::Linear { base, end, .. }, "updateddistance" | "distance") => {
@@ -171,7 +190,7 @@ impl Current<'_> {
                 Some(format!("{}", (e - b).len()))
             }
             (ParameterKind::Lookup { .. }, "lookupstring") => match v {
-                Some(Value::Text { value }) => Some(value.clone()),
+                Some(Value::Text { value, .. }) => Some(value.clone()),
                 _ => None,
             },
             _ => None,
@@ -246,6 +265,21 @@ pub fn custom_properties(d: &Drawing, insert: Handle) -> Option<(String, Vec<Cus
                 };
                 out.push(CustomProperty { name: format!("{label} X"), value: number(d, (at.x - base.x) * sx), choices: Vec::new(), editable: true });
                 out.push(CustomProperty { name: format!("{label} Y"), value: number(d, (at.y - base.y) * sy), choices: Vec::new(), editable: true });
+            }
+            ParameterKind::Rotation { base: hb, end: he, label, .. } => {
+                let (b, e) = match v {
+                    Some(Value::Points { base, end }) => (*base, *end),
+                    _ => (*hb, *he),
+                };
+                let now = (e - b).xy();
+                let zero = (*he - *hb).xy();
+                let a = (now.y.atan2(now.x) - zero.y.atan2(zero.x)).rem_euclid(std::f64::consts::TAU);
+                out.push(CustomProperty { name: label.clone(), value: angle_text(d, a), choices: Vec::new(), editable: true });
+            }
+            ParameterKind::Flip { label, states, .. } => {
+                let flipped = matches!(v, Some(Value::Flip { flipped: true, .. }));
+                let value = states[usize::from(flipped)].clone();
+                out.push(CustomProperty { name: label.clone(), value, choices: states.to_vec(), editable: true });
             }
             ParameterKind::Visibility { label, states, .. } => {
                 let value = cur.property(p.node, "VisibilityState").unwrap_or_default();
