@@ -21,6 +21,7 @@ mod graphics;
 mod logging;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod single_instance;
 mod spacemouse;
 mod system_animations;
 mod workspace;
@@ -37,6 +38,7 @@ struct App {
     system_animations: system_animations::SystemAnimations,
     workspace: workspace::Workspace,
     workspace_error: Option<String>,
+    single_instance: Option<single_instance::Server>,
     #[cfg(target_os = "macos")]
     native_menu: Option<native_menu::NativeMenu>,
 }
@@ -75,7 +77,21 @@ impl eframe::App for App {
                 m.poll(&mut self.cad, ctx);
             }
         }
+        if std::mem::take(&mut self.cad.toggle_fullscreen) {
+            let is_fullscreen = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!is_fullscreen));
+        }
         self.cad.system_animations = self.system_animations.current();
+        if let Some(server) = &self.single_instance {
+            let paths = server.take_paths();
+            if !paths.is_empty() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                for p in paths {
+                    self.cad.open_path(&p);
+                }
+            }
+        }
         self.cad.logic(ctx);
         self.spacemouse.poll(&mut self.cad, ctx);
         self.persist_workspace(false);
@@ -233,11 +249,15 @@ fn main() -> eframe::Result {
         control_port_from("CADCRAFT_CONTROL_PORT", std::env::var_os("CADCRAFT_CONTROL_PORT").map(|p| p.to_string_lossy().into_owned()));
     let mut files = Vec::new();
     let mut sample = false;
+    let mut new_window = false;
+    let mut fullscreen = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--control" => control_port = control_flag(control_port, args.next()),
             "--sample" => sample = true,
+            "--new-window" => new_window = true,
+            "--fullscreen" => fullscreen = true,
             "--version" | "-V" => {
                 println!("{}", version_string());
                 return Ok(());
@@ -257,6 +277,12 @@ fn main() -> eframe::Result {
             }
         }
     }
+    let may_hand_off = !new_window && !files.is_empty() && control_port.is_none() && !sample;
+    let instance = match single_instance::claim(&single_instance::absolute(&files), may_hand_off) {
+        single_instance::Claim::HandedOff => return Ok(()),
+        single_instance::Claim::Primary(server) => Some(server),
+        single_instance::Claim::Alone => None,
+    };
     install_io();
     let surface = cadcraft_ui_egui::gpu::surface_config(std::env::var("CADCRAFT_VSYNC").ok().as_deref(), cfg!(all(unix, not(target_os = "macos"))));
     let mut options = eframe::NativeOptions {
@@ -272,13 +298,16 @@ fn main() -> eframe::Result {
             .with_titlebar_shown(false)
             .with_title_shown(false)
             .with_app_id(APP_ID),
-        persist_window: false,
+        persist_window: true,
         // A stencil buffer clips the contents of clipped layout viewports on the GPU.
         stencil_buffer: STENCIL_BITS,
         ..Default::default()
     };
     if let Some(icon) = app_icon() {
         options.viewport = options.viewport.with_icon(icon);
+    }
+    if fullscreen {
+        options.viewport = options.viewport.with_fullscreen(true);
     }
     // Before eframe creates the wgpu instance: default Windows to DirectX 12 with FXC (see graphics.rs).
     #[cfg(target_os = "windows")]
@@ -359,6 +388,10 @@ fn main() -> eframe::Result {
             if app.session.docs.is_empty() {
                 app.session.new_drawing(false);
             }
+            if let Some(server) = &instance {
+                let wake = cc.egui_ctx.clone();
+                server.set_wake(move || wake.request_repaint());
+            }
             let ctx = cc.egui_ctx.clone();
             let desktop_theme = desktop_theme::DesktopTheme::start(move || ctx.request_repaint());
             let ctx = cc.egui_ctx.clone();
@@ -370,6 +403,7 @@ fn main() -> eframe::Result {
                 spacemouse: spacemouse::SpaceMouse::start(cc.egui_ctx.clone()),
                 workspace,
                 workspace_error,
+                single_instance: instance,
                 #[cfg(target_os = "macos")]
                 native_menu: None,
             }))

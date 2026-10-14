@@ -39,6 +39,7 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("ui.toggle.cmdline", "Command Line", &["Window", "Command Line"], Some("Cmd+9")),
     ("ui.toggle.viewcube", "ViewCube", &["View", "ViewCube", "On"], None),
     ("ui.toggle.ucsicon", "UCS Icon", &["View", "UCS Icon", "On"], None),
+    ("ui.fullscreen", "Full Screen", &["View", "Full Screen"], Some("F11")),
     ("ui.theme.system", "Use System Setting", &["View", "Interface Theme", "Use System Setting"], None),
     ("ui.theme.light", "Light", &["View", "Interface Theme", "Light"], None),
     ("ui.theme.dark", "Dark", &["View", "Interface Theme", "Dark"], None),
@@ -353,6 +354,10 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             app.quit_requested = true;
             Ok(Value::Null)
         }
+        "ui.fullscreen" => {
+            app.toggle_fullscreen = true;
+            Ok(Value::Null)
+        }
         "ui.noop" => Ok(Value::Null),
         // From a menu or typed, closing asks about unsaved changes; JSON calls close without asking.
         "close" if params.is_null() => {
@@ -624,7 +629,9 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
         (sc(Modifiers::NONE, Key::F8), "ortho"),
         (sc(Modifiers::NONE, Key::F9), "snap"),
         (sc(Modifiers::NONE, Key::F10), "polar"),
-        (sc(Modifiers::NONE, Key::F11), "otrack"),
+        (sc(Modifiers::NONE, Key::F11), "ui.fullscreen"),
+        (sc(Modifiers::ALT, Key::Enter), "ui.fullscreen"),
+        (sc(Modifiers::SHIFT, Key::F11), "otrack"),
         (sc(Modifiers::NONE, Key::F12), "dynmode"),
     ];
     crate::clipboard::mirror(app, ctx);

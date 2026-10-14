@@ -561,6 +561,7 @@ dependencies = [
  "rfd",
  "serde_json",
  "sys-locale",
+ "uds_windows",
  "windows",
  "winit",
  "winresource",

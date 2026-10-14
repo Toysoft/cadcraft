@@ -226,6 +226,7 @@ pub struct CadApp {
     shown_animations: Option<bool>,
     pub frame_ms: f64,
     pub quit_requested: bool,
+    pub toggle_fullscreen: bool,
     /// The app may close although drawings have unsaved changes (they were dealt with, or the
     /// quit came from the control channel, which never asks).
     pub quit_confirmed: bool,
@@ -273,6 +274,7 @@ impl CadApp {
             shown_animations: None,
             frame_ms: 0.0,
             quit_requested: false,
+            toggle_fullscreen: false,
             quit_confirmed: false,
             closing: None,
             autosave: None,
