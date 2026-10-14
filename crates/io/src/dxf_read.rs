@@ -416,6 +416,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
                 rows: t.i(71).unwrap_or(1).clamp(1, 10_000) as u32,
                 col_spacing,
                 row_spacing: t.fd(45, 0.0),
+                clip: None,
             })
         }
         "DIMENSION" => {
@@ -1831,6 +1832,7 @@ pub fn read(bytes: &[u8]) -> Result<Drawing> {
     }
     crate::dxf_raw::read(&secs, &mut d);
     d.skipped_records = skipped;
+    crate::dxf_clip::read(&mut d);
     Ok(d)
 }
 

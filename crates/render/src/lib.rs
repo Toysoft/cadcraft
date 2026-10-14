@@ -808,7 +808,10 @@ enum Clip<'a> {
 
 /// Append `src` to `dst`, clipped to `clip`.
 fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
-    for p in &src.prims {
+    let texts: std::collections::HashMap<usize, &PlotText> =
+        src.texts.iter().filter(|t| t.prim != PlotText::NONE && t.prim != PlotText::CLIPPED).map(|t| (t.prim as usize, t)).collect();
+    for (source_index, p) in src.prims.iter().enumerate() {
+        let first = dst.prims.len();
         let pts = src.points(p);
         match (p.kind, clip) {
             (Kind::Polyline, Clip::Rect(rect)) => {
@@ -854,6 +857,21 @@ fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
                     }
                 }
             }
+        }
+        if let Some(pen) = src.pens.get(source_index).copied().filter(|pen| !pen.is_object()) {
+            for i in first..dst.prims.len() {
+                dst.pens.resize(i, Pen::default());
+                dst.pens.push(pen);
+            }
+        }
+        // Keep a glyph as real text only when clipping left its whole outline intact.
+        if dst.prims.len() == first + 1
+            && dst.prims[first].kind == p.kind
+            && dst.points(&dst.prims[first]) == pts
+            && let Some(t) = texts.get(&source_index)
+            && let Ok(prim) = u32::try_from(first)
+        {
+            dst.texts.push(PlotText { prim, ..(**t).clone() });
         }
     }
 }
@@ -1514,55 +1532,110 @@ fn insert(b: &mut Builder, ctx: &Ctx, e: &Entity, ins: &cadcraft_doc::Insert, rg
                 let off = Vec2::new(ins.col_spacing * f64::from(c), ins.row_spacing * f64::from(r)).rotate(ins.rotation);
                 let m = Mat3::translate(off).then_before(ins.transform(blk.base.xy()));
                 let sub = Ctx { block_pstyle: b.named, block_transparency: b.transparency, ..sub_ctx(ctx, e, m) };
-                for be in blk.entities.iter() {
-                    // Constant/visible attribute definitions inside blocks are not drawn; attribs are.
-                    if matches!(be.kind, EntityKind::AttDef(_)) {
-                        continue;
+                let clip =
+                    ins.clip.as_ref().filter(|clip| clip.enabled && !clip.deleted && clip.points.len() <= clip::MAX_CLIP_POINTS).and_then(|clip| {
+                        let world: Vec<Vec2> = clip.polygon().into_iter().map(|p| sub.xf.apply(p)).collect();
+                        clip::PolyClip::new(&world)
+                    });
+                if let Some(clip) = clip {
+                    let mut part = Builder {
+                        list: DisplayList::default(),
+                        opts: b.opts,
+                        plotting: b.plotting,
+                        styles: b.styles,
+                        named: b.named,
+                        shared_budget: b.shared_budget,
+                        transparency: b.transparency,
+                    };
+                    part.list.expanded = b.list.expanded;
+                    for be in blk.entities.iter().filter(|be| !matches!(be.kind, EntityKind::AttDef(_))) {
+                        if !part.expand() {
+                            b.list.expanded = part.list.expanded;
+                            break 'copies;
+                        }
+                        entity(&mut part, &sub, be);
                     }
-                    if !b.expand() {
-                        break 'copies;
+                    b.list.expanded = part.list.expanded;
+                    append_clipped(&mut b.list, &part.list, &Clip::Poly(&clip));
+                } else {
+                    for be in blk.entities.iter() {
+                        // Constant/visible attribute definitions inside blocks are not drawn; attribs are.
+                        if matches!(be.kind, EntityKind::AttDef(_)) {
+                            continue;
+                        }
+                        if !b.expand() {
+                            break 'copies;
+                        }
+                        entity(b, &sub, be);
                     }
-                    entity(b, &sub, be);
                 }
             }
         }
     }
-    if b.opts.text {
-        // ATTMODE (ATTDISP): 0 shows no attributes, 1 the visible ones, 2 all of them.
-        let attmode = ctx.d.header.i64("ATTMODE", 1);
-        // The reference's transparency; each attribute draws with its own.
-        let reference = b.transparency;
-        for a in &ins.attribs {
-            if attmode == 0 || (a.invisible && attmode != 2) {
-                continue;
-            }
-            // A multiline attribute is drawn as its multiline text.
-            let multiline = a.multiline_text();
-            let sh = if multiline.is_none() { Some(place_text_entity(ctx.d, &a.text, &a.text.value).0) } else { None };
-            // Properties of the attribute's definition (as AutoCAD copies them to the attribute
-            // on insertion), except those set on the attribute itself: ByBlock = the reference's,
-            // layer 0 = the reference's layer.
-            let def = ctx.d.block(&ins.block).and_then(|blk| blk.entities.iter().find(|be| attdef_tag(be, &a.tag)));
-            let (ink, lw, shown, t) = match (def, a.props.is_empty()) {
-                (None, true) => (rgb, resolve(ctx, e, b.plotting).1, true, reference),
-                (def, _) => {
-                    let c = a.props.over(&def.map(|d| d.common.clone()).unwrap_or_else(by_block));
-                    let (ink, lw, _, _, shown, layer_t) = resolve_common(&sub_ctx(ctx, e, Mat3::IDENTITY), &c, b.plotting);
-                    let t = if b.opts.transparency { transparency(c.transparency, layer_t, reference) } else { 0 };
-                    (ink, lw, shown, t)
+    let draw_attribs = |b: &mut Builder<'_>| {
+        if b.opts.text {
+            // ATTMODE (ATTDISP): 0 shows no attributes, 1 the visible ones, 2 all of them.
+            let attmode = ctx.d.header.i64("ATTMODE", 1);
+            // The reference's transparency; each attribute draws with its own.
+            let reference = b.transparency;
+            for a in &ins.attribs {
+                if attmode == 0 || (a.invisible && attmode != 2) {
+                    continue;
                 }
-            };
-            if shown {
-                b.transparency = t;
-                let lw = if b.opts.lineweights { lw } else { 0.0 };
-                match (&multiline, &sh) {
-                    (Some(m), _) => mtext(b, ctx, m, ink, lw),
-                    (None, Some(sh)) => b.shaped(ctx, ink, lw, sh),
-                    (None, None) => {}
+                // A multiline attribute is drawn as its multiline text.
+                let multiline = a.multiline_text();
+                let sh = if multiline.is_none() { Some(place_text_entity(ctx.d, &a.text, &a.text.value).0) } else { None };
+                // Properties of the attribute's definition (as AutoCAD copies them to the attribute
+                // on insertion), except those set on the attribute itself: ByBlock = the reference's,
+                // layer 0 = the reference's layer.
+                let def = ctx.d.block(&ins.block).and_then(|blk| blk.entities.iter().find(|be| attdef_tag(be, &a.tag)));
+                let (ink, lw, shown, t) = match (def, a.props.is_empty()) {
+                    (None, true) => (rgb, resolve(ctx, e, b.plotting).1, true, reference),
+                    (def, _) => {
+                        let c = a.props.over(&def.map(|d| d.common.clone()).unwrap_or_else(by_block));
+                        let (ink, lw, _, _, shown, layer_t) = resolve_common(&sub_ctx(ctx, e, Mat3::IDENTITY), &c, b.plotting);
+                        let t = if b.opts.transparency { transparency(c.transparency, layer_t, reference) } else { 0 };
+                        (ink, lw, shown, t)
+                    }
+                };
+                if shown {
+                    b.transparency = t;
+                    let lw = if b.opts.lineweights { lw } else { 0.0 };
+                    match (&multiline, &sh) {
+                        (Some(m), _) => mtext(b, ctx, m, ink, lw),
+                        (None, Some(sh)) => b.shaped(ctx, ink, lw, sh),
+                        (None, None) => {}
+                    }
                 }
             }
+            b.transparency = reference;
         }
-        b.transparency = reference;
+    };
+    let attr_clip = ctx
+        .d
+        .block(&ins.block)
+        .and_then(|blk| {
+            ins.clip.as_ref().filter(|clip| clip.enabled && !clip.deleted && clip.points.len() <= clip::MAX_CLIP_POINTS).map(|clip| (blk, clip))
+        })
+        .and_then(|(blk, clip)| {
+            let xf = ctx.xf.then_before(ins.transform(blk.base.xy()));
+            let world: Vec<Vec2> = clip.polygon().into_iter().map(|p| xf.apply(p)).collect();
+            clip::PolyClip::new(&world)
+        });
+    if let Some(clip) = attr_clip {
+        let mut part = Builder {
+            list: DisplayList::default(),
+            opts: b.opts,
+            plotting: b.plotting,
+            styles: b.styles,
+            named: b.named,
+            shared_budget: b.shared_budget,
+            transparency: b.transparency,
+        };
+        draw_attribs(&mut part);
+        append_clipped(&mut b.list, &part.list, &Clip::Poly(&clip));
+    } else {
+        draw_attribs(b);
     }
 }
 

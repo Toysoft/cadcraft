@@ -1,6 +1,6 @@
 # CADCraft roadmap detail
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (Block Editor for static blocks: "Use blocks" evidence updated) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (basic XCLIP and REFEDIT evidence updated; estimates not remeasured) · **Target:** Autodesk AutoCAD 2027
 
 Forward-looking plan: milestones with status, the current focus, and what comes next with
 estimates. The summary is [ROADMAP.md](../ROADMAP.md); the work items behind every line are in
@@ -19,7 +19,7 @@ Opus 5.5 agent-hours.
    overrides, editable dynamic input (U1–U4). ≈ 25–35 h.
 5. **Unstub the prompt options** of the most-used commands (F1). ≈ 15–25 h.
 6. **Autosave, recovery, AUDIT, RECOVER** (F4). ≈ 10–15 h.
-7. **The rest of the alpha gate:** block editor and REFEDIT, xref attach (F2, F3), and plot styles
+7. **The rest of the alpha gate:** xref editing in place and dynamic-block authoring (F2, F3), and plot styles
    with a plot dialog and preview (F14). ≈ 50–80 h.
 
 Items 2–5 and 7 are the [alpha gate](#alpha-gate) rows.
@@ -34,9 +34,9 @@ the alpha checklist. Main platform: macOS.
 |---|---|---|---|
 | Draw and modify precisely with object snaps and tracking | **partial, blocking** | Running snaps, polar, ortho and coordinate entry work; object snap tracking, extension and parallel snaps are toggles with no behaviour; no FROM/M2P/TK or typed snap overrides; TRIM/EXTEND standard mode, OFFSET Erase/Layer/Multiple, ROTATE Reference print "not available yet"; ellipse/spline intersections approximate ([ui-parity.md](ui-parity.md), [gaps.md](gaps.md) U1, U3, U4, F1) | 35–50 |
 | Dimension and annotate | partial, not blocking | All core DIM types, associativity, DIMSTYLE variables (43 of ~80), TEXT/MTEXT, MLEADER, tables work; no DIMSTYLE dialog, MTEXT editor not in place, MLEADER thin (F7, F9, F10). A drafter can dimension a sheet end to end | 0 for the gate (beta work) |
-| Use blocks (insert library blocks, edit them, attributes, xrefs) | **partial, blocking** | Static BLOCK/INSERT/attributes, ATTSYNC, BATTMAN editing, xrefs (#525) and the Block Editor (BEDIT/BSAVE/BCLOSE: every reference updates) work; no REFEDIT, so a block can't be edited in place in the drawing; no XCLIP; dynamic blocks from other drawings lose their behaviour (F2, F3) | 35–55 |
+| Use blocks (insert library blocks, edit them, attributes, xrefs) | **partial, blocking** | Static BLOCK/INSERT/attributes, ATTSYNC, BATTMAN editing, xrefs (#525), the Block Editor (BEDIT/BSAVE/BCLOSE), REFEDIT for block references, and basic XCLIP work; xrefs still cannot be edited in place and dynamic-block authoring is missing (F2, F3) | 35–55 |
 | Layers, layouts and plotting a sheet | **partial, blocking** | Layers, layouts, viewports, page setups, PDF output, plot styles (CTB/STB, #410), the Plot dialog (#160), Plot Preview and PUBLISH (#186) and plotter devices (#564) work; printers only via PDF/PNG/SVG files (F14, H3) | 15–25 |
-| Save DWG that AutoCAD opens without loss, and reopen others' DWGs | **no** | DXF keeps what we don't model (#528) and writes native MULTILEADERs (#459, not yet tested through DWG); through DWG, acadrust drops custom-class entities and objects and some foreign data; never checked in AutoCAD; no real-file tests; a 10 MB DWG failed after ~2 min (#57) (FF1–FF6) | 40–60 + owner (real-file corpus, AutoCAD check) |
+| Save DWG that AutoCAD opens without loss, and reopen others' DWGs | **no** | DXF keeps what we don't model (#528) and writes native MULTILEADERs (#459, not yet tested through DWG); through DWG, acadrust drops custom-class entities and objects and some foreign data; XCLIP was checked with a synthetic DWG in AutoCAD, but no representative real-file corpus has been tested; a 10 MB DWG failed after ~2 min (#57) (FF1–FF6) | 40–60 + owner (real-file corpus, AutoCAD check) |
 | **To alpha** | | | **≈ 125–190** |
 
 Ready for real work is ≈ 38%, also under the ~40% alpha bar; closing the gate rows lifts it past
@@ -103,6 +103,7 @@ AutoLISP surface, AI features with openly licensed local models, and every remai
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Basic XCLIP and REFEDIT added to block workflow evidence; status and hours not remeasured |
 | 2026-10-12 | minor | Block Editor for static blocks landed: "Use blocks" evidence updated; status and hours unchanged (REFEDIT and dynamic blocks remain) |
 | 2026-10-11 | minor | Alpha-gate evidence refreshed for merged work (#459, #525, #528, #160, #186, #564); statuses and hours unchanged |
 | 2026-10-10 | minor | Merged main: fmt fixed, Ukrainian catalog noted in M13, ready for real work 38% |

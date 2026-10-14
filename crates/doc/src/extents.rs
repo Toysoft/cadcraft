@@ -138,6 +138,24 @@ fn bounds_in<'a>(d: &'a Drawing, e: &Entity, depth: usize, blocks: &mut HashMap<
                     });
                 }
             }
+            if let (Some(clip), Some(blk)) =
+                (ins.clip.as_ref().filter(|c| c.enabled && !c.deleted && (2..=4096).contains(&c.points.len())), d.block(&ins.block))
+            {
+                let m = ins.transform(blk.base.xy());
+                let polygon = clip.polygon();
+                if polygon.len() >= 3 && polygon.iter().all(|p| p.is_finite()) {
+                    let mut cb = Bounds2::from_points(polygon.into_iter().map(|p| m.apply(p)));
+                    if ins.cols > 1 || ins.rows > 1 {
+                        let off = Vec2::new(
+                            ins.col_spacing * f64::from(ins.cols.saturating_sub(1)),
+                            ins.row_spacing * f64::from(ins.rows.saturating_sub(1)),
+                        )
+                        .rotate(ins.rotation);
+                        cb = cb.union(&Bounds2::from_points(cb.corners().map(|c| c + off)));
+                    }
+                    b = if b.intersects(&cb) { Bounds2 { min: b.min.max(cb.min), max: b.max.min(cb.max) } } else { Bounds2::EMPTY };
+                }
+            }
             b
         }
         EntityKind::Dimension(dm) => {

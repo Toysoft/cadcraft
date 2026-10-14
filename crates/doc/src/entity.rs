@@ -477,6 +477,44 @@ impl AttribProps {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ClipBoundary {
+    /// Boundary points in the referenced block's coordinates. Two points describe a rectangle;
+    /// three or more describe a closed polygon. The block reference's transform moves the clip.
+    pub points: Vec<Vec2>,
+    #[serde(default = "clip_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub inverted: bool,
+    /// A deleted imported filter remains marked until the next file write, so its preserved raw
+    /// SPATIAL_FILTER object can be removed instead of silently restoring the old boundary.
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+fn clip_enabled() -> bool {
+    true
+}
+
+impl ClipBoundary {
+    /// A closed polygon for rendering. Invalid boundaries are ignored by the renderer.
+    pub fn polygon(&self) -> Vec<Vec2> {
+        if self.points.len() == 2 {
+            let a = self.points[0];
+            let b = self.points[1];
+            vec![
+                Vec2::new(a.x.min(b.x), a.y.min(b.y)),
+                Vec2::new(a.x.max(b.x), a.y.min(b.y)),
+                Vec2::new(a.x.max(b.x), a.y.max(b.y)),
+                Vec2::new(a.x.min(b.x), a.y.max(b.y)),
+            ]
+        } else {
+            self.points.clone()
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Insert {
     pub block: String,
     pub insert: Vec3,
@@ -494,6 +532,9 @@ pub struct Insert {
     pub col_spacing: f64,
     #[serde(default)]
     pub row_spacing: f64,
+    /// XCLIP boundary for this block reference, independent of other references to the block.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<ClipBoundary>,
 }
 fn unit_scale() -> Vec3 {
     Vec3::new(1.0, 1.0, 1.0)

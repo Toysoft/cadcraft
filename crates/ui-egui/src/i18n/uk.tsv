@@ -136,6 +136,7 @@
 	Clear History	Очистити журнал
 	Clear	Очистити
 	Clip	Обрізати
+	Clip Reference	Обрізати зовнішнє посилання
 	Clip Viewport	Обрізати видовий екран
 	Clipboard	Буфер обміну
 	Close	Закрити
@@ -592,6 +593,7 @@
 	Open Sample Drawing	Відкрити зразок креслення
 	Open sample drawing	Відкрити зразок креслення
 	Open Xref	Відкрити зовнішнє посилання
+	Xref	Зовнішнє посилання
 	Open...	Відкрити...
 	Open Recent	Відкрити нещодавні
 	Clear Recent Files	Очистити список нещодавніх файлів

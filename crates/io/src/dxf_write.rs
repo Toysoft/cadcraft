@@ -1580,6 +1580,8 @@ fn tags_for(d: &Drawing, version: Version, target: Version) -> Vec<Tag> {
     // An in-place block edit in progress is not written: the drawing as before it.
     let committed = d.committed();
     let d: &Drawing = &committed;
+    let clipped = crate::dxf_clip::prepare(d);
+    let d = clipped.as_ref().unwrap_or(d);
     // Structural handles start above every entity handle.
     let mut w = W {
         t: Vec::new(),
