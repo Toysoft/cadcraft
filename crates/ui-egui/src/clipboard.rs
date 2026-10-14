@@ -22,7 +22,14 @@ fn text_id() -> egui::Id {
 /// Line endings normalised (pasted text arrives with `\n`), so our own text is recognised.
 fn hash(text: &str) -> u64 {
     let mut h = DefaultHasher::new();
-    text.replace("\r\n", "\n").hash(&mut h);
+    // Hash without allocating another clipboard-sized string.
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' && chars.peek() == Some(&'\n') {
+            continue;
+        }
+        c.hash(&mut h);
+    }
     h.finish()
 }
 
@@ -39,28 +46,33 @@ pub fn mirror(app: &CadApp, ctx: &egui::Context) {
     }
 }
 
-/// The commands the Cut/Copy/Paste events of this frame ask for. Pasted DXF text that isn't our
-/// own last copy (another CADCraft's) becomes the clipboard first.
+/// Consume drawing clipboard events and return their commands. Plain-text paste stays in the
+/// event stream for the command line; foreign DXF becomes the drawing clipboard first.
 pub fn shortcut_commands(app: &mut CadApp, ctx: &egui::Context) -> Vec<&'static str> {
-    let (events, shift) = ctx.input(|i| {
-        let ev: Vec<egui::Event> =
-            i.events.iter().filter(|e| matches!(e, egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_))).cloned().collect();
-        (ev, i.modifiers.shift)
-    });
+    let mut last_hash = ctx.data(|d| d.get_temp::<u64>(text_id()));
     let mut out = Vec::new();
-    for e in events {
-        match e {
-            egui::Event::Copy => out.push(if shift { "copybase" } else { "copyclip" }),
-            egui::Event::Cut => out.push("cutclip"),
-            egui::Event::Paste(text) => {
-                let h = hash(&text);
-                if ctx.data(|d| d.get_temp::<u64>(text_id())) != Some(h) && clipboard::load_system_text(&mut app.session, &text) {
-                    ctx.data_mut(|d| d.insert_temp(text_id(), h));
+    ctx.input_mut(|i| {
+        let shift = i.modifiers.shift;
+        i.events.retain(|e| {
+            match e {
+                egui::Event::Copy => out.push(if shift { "copybase" } else { "copyclip" }),
+                egui::Event::Cut => out.push("cutclip"),
+                egui::Event::Paste(text) => {
+                    let h = hash(text);
+                    let own_copy = last_hash == Some(h) && !app.session.clipboard.is_empty();
+                    if !own_copy && !clipboard::load_system_text(&mut app.session, text) {
+                        return true;
+                    }
+                    last_hash = Some(h);
+                    out.push(if shift { "pasteblock" } else { "pasteclip" });
                 }
-                out.push(if shift { "pasteblock" } else { "pasteclip" });
+                _ => return true,
             }
-            _ => {}
-        }
+            false
+        });
+    });
+    if let Some(h) = last_hash {
+        ctx.data_mut(|d| d.insert_temp(text_id(), h));
     }
     out
 }

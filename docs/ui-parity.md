@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (animation effects follow the operating system's setting) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (plain-text clipboard paste reaches the command line) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
 
 How CADCraft's interaction compares with AutoCAD's: point entry, object snaps, tracking, dynamic
 input, grips, selection, the command line, chrome and navigation. A drafter's speed in AutoCAD
@@ -143,6 +143,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 | AutoComplete (commands, sysvars, mid-string, synonyms) | yes | command list with Tab to accept (`cmdline.rs:30,176,317`); no sysvar or mid-string search confirmed |
 | Aliases | about 250 in `acad.pgp` | 144 aliases across the commands (counted from source) |
 | History (F2), Up/Down recall | yes | yes |
+| Clipboard text paste | not re-measured | ⌘/Ctrl+V appends editable text (also with the command overlay hidden); CR/LF/Tab become spaces, execution waits for Enter; focused text fields keep their paste; DXF objects still use PASTECLIP/PASTEBLOCK |
 | Transparent commands (`'zoom`, `'pan`, `'osnap`) | yes | yes (`lib.rs:496-503`) |
 | Enter/Space repeats last command | yes | yes |
 | Clickable keywords in the prompt | yes | yes (`cmdline.rs:253-267`) |
@@ -202,6 +203,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Plain-text paste is routed to the command line rather than stale copied objects; native macOS paste accelerators are left to winit's clipboard events (explicit drawing menu actions stay unchanged, but those native items no longer display key equivalents); Unicode, whitespace, hidden overlay, focused fields, oversized payloads and DXF drawing paste covered by regression tests. Live ⌘V/screenshot validation blocked by a locked screen |
 | 2026-10-12 | minor | Selected and hovered objects redrawn in the selection colour (text and arrowheads included); Options ▸ Selection laid out as AutoCAD's: Object grouping, Show grips, grip object limit, selection preview, Visual Effect Settings (selection area, preview filter) |
 | 2026-10-12 | minor | Animation effects (dialog and menu fades, smoothed wheel scrolling and ⌘/Ctrl+wheel zoom) follow the operating system's setting; View ▸ Accessibility ▸ Animation Effects chooses System, On or Off |
 | 2026-10-12 | minor | Hatch and Gradient / Hatch Edit dialogs (HATCH, GRADIENT, HATCHEDIT, double-click a hatch; HPDLGMODE) |

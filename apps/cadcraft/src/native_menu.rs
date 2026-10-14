@@ -22,8 +22,10 @@ pub struct NativeMenu {
 }
 
 /// Accelerator for "Cmd+Shift+S" (modifier-less shortcuts stay in the app so typing works).
+/// Paste shortcuts also stay in winit: only its clipboard event carries the text/DXF payload.
+/// Explicit drawing menu actions still use the internal clipboard, even if DXF mirroring fails.
 fn accel(sc: &str) -> Option<Accelerator> {
-    if !(sc.contains("Cmd") || sc.contains("Ctrl") || sc.contains("Alt")) {
+    if matches!(sc, "Cmd+V" | "Cmd+Shift+V") || !(sc.contains("Cmd") || sc.contains("Ctrl") || sc.contains("Alt")) {
         return None;
     }
     Accelerator::from_str(&sc.replace("Cmd", "CMD").replace("Alt", "ALT").replace("Shift", "SHIFT").replace("Ctrl", "CTRL")).ok()
@@ -148,5 +150,17 @@ fn build(
                 items.insert(mid, (id.clone(), label.clone(), i));
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn native_menu_does_not_intercept_clipboard_paste_shortcuts() {
+        assert!(accel("Cmd+V").is_none());
+        assert!(accel("Cmd+Shift+V").is_none());
+        assert!(accel("Cmd+Shift+S").is_some(), "other native shortcuts are retained");
     }
 }

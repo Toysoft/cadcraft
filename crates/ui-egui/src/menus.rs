@@ -632,10 +632,12 @@ pub fn shortcuts(app: &mut CadApp, ctx: &egui::Context) {
         return;
     }
     // Cmd/Ctrl+C, X and V arrive as clipboard events, not key presses.
+    let pasted = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Paste(_))));
     let mut fire = crate::clipboard::shortcut_commands(app, ctx);
     ctx.input_mut(|i| {
         for (s, id) in pairs {
-            if i.consume_shortcut(s) && !fire.contains(id) {
+            // An explicit paste event owns the payload, including ordinary command-line text.
+            if i.consume_shortcut(s) && !fire.contains(id) && !(pasted && matches!(*id, "pasteclip" | "pasteblock")) {
                 fire.push(*id);
             }
         }

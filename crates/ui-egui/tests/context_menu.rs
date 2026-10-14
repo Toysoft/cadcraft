@@ -74,27 +74,6 @@ fn context_menu_selection(app: &mut CadApp) {
     assert!(app.session.selection().is_empty());
 }
 
-/// egui delivers Cmd/Ctrl+C, X and V as clipboard events, not key presses: they run the
-/// clipboard commands.
-#[test]
-fn clipboard_events_run_the_clipboard_commands() {
-    let mut app = CadApp::new(Session::new(), Services::default());
-    app.run("line", json!({ "points": [[0, 0], [10, 0]] })).unwrap();
-    let h = app.session.doc().unwrap().model.handles();
-    app.session.set_selection(h);
-    let ctx = egui::Context::default();
-    let frame = |app: &mut CadApp, events: Vec<egui::Event>| {
-        ctx.begin_pass(egui::RawInput { events, ..Default::default() });
-        cadcraft_ui_egui::menus::shortcuts(app, &ctx);
-        ctx.end_pass().textures_delta.clear();
-    };
-    frame(&mut app, vec![egui::Event::Copy]);
-    assert_eq!(app.session.clipboard.len(), 1, "Copy with a selection copies it");
-    frame(&mut app, vec![egui::Event::Paste("text from another program".into())]);
-    assert_eq!(app.session.running.as_ref().map(|r| r.id.as_str()), Some("pasteclip"));
-    assert!(app.session.prompt_text().contains("insertion point"));
-}
-
 /// (label, id, enabled) of the object snap menu's items (#393).
 fn snap_items(app: &CadApp) -> Vec<(String, String, bool)> {
     let mut out = Vec::new();

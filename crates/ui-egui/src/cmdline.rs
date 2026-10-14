@@ -252,7 +252,27 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
     if ctx.egui_wants_keyboard_input() {
         return;
     }
-    let events = ctx.input(|i| i.events.clone());
+    // Bound clipboard-driven growth before cloning or normalising a hostile text payload.
+    const MAX_PASTED_BUFFER_BYTES: usize = 64 * 1024;
+    let available = MAX_PASTED_BUFFER_BYTES.saturating_sub(app.cmd.buffer.len());
+    let mut rejected_paste = false;
+    let events = ctx.input(|i| {
+        i.events
+            .iter()
+            .filter(|e| {
+                if matches!(e, egui::Event::Paste(t) if t.len() > available) {
+                    rejected_paste = true;
+                    false
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    });
+    if rejected_paste {
+        app.session.echo("Clipboard text is too long for the command line (64 KiB limit)");
+    }
     let selection = app.session.selection();
     app.cmd.watch_selection(&selection);
     let mac = ctx.os() == egui::os::OperatingSystem::Mac;
@@ -286,11 +306,20 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 egui::Event::Key { key: Key::ArrowDown | Key::ArrowUp, pressed: true, .. } => {}
                 // Space arrives as a key and as text; the text picks.
                 egui::Event::Key { key: Key::Space, .. } => {}
-                egui::Event::Text(_) | egui::Event::Key { pressed: true, .. } => app.cmd.options = None,
+                egui::Event::Text(_) | egui::Event::Paste(_) | egui::Event::Key { pressed: true, .. } => app.cmd.options = None,
                 _ => {}
             }
         }
         match ev {
+            egui::Event::Paste(t) => {
+                // Paste is editable text, never a sequence of Enter/Space/Tab key presses.
+                // Keep the single-line buffer readable without executing clipboard commands.
+                if t.len() > MAX_PASTED_BUFFER_BYTES.saturating_sub(app.cmd.buffer.len()) {
+                    app.session.echo("Clipboard text is too long for the command line (64 KiB limit)");
+                    continue;
+                }
+                app.cmd.buffer.extend(t.replace("\r\n", "\n").chars().map(|c| if matches!(c, '\r' | '\n' | '\t') { ' ' } else { c }));
+            }
             egui::Event::Text(t) => {
                 if t == "\t" {
                     tab(app);
