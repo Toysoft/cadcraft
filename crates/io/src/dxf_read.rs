@@ -175,6 +175,8 @@ fn mtext_from(tags: &[Tag], c: &Common) -> MText {
         line_spacing: t.fd(44, 1.0),
         line_spacing_exact: t.i(73) == Some(2),
         columns: columns.map(|(c, _)| c),
+        direction: cadcraft_doc::MTextDirection::from_code(own.i(72).unwrap_or(1)),
+        background: mtext_dxf::read_mask(tags),
     }
 }
 
@@ -205,6 +207,9 @@ fn text_from(t: &T) -> Text {
         style: t.s(7).unwrap_or_else(|| "Standard".into()),
         halign: h,
         valign: v,
+        // Text generation flags: 2 backwards, 4 upside down.
+        backwards: t.i(71).unwrap_or(0) & 2 != 0,
+        upside_down: t.i(71).unwrap_or(0) & 4 != 0,
     };
     let n = Vec3::new(t.fd(210, 0.0), t.fd(220, 0.0), t.fd(230, 1.0));
     if n.z < 0.0 {
