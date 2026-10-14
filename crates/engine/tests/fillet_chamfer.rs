@@ -121,3 +121,39 @@ fn json_chamfer_angle_and_trim() {
     s.execute("chamfer", &json!({ "h1": hs[0], "p1": [5, 0], "h2": hs[1], "p2": [10, 5], "length": 2, "angle": 45, "trim": false })).unwrap();
     assert_eq!(lines(&s), vec![((0.0, 0.0), (12.0, 0.0)), ((8.0, 0.0), (10.0, 2.0)), ((10.0, -2.0), (10.0, 12.0))]);
 }
+
+/// Each line by handle, its ends in drawing order (start, end), rounded.
+fn ends(s: &Session, hs: &[cadcraft_engine::doc::Handle]) -> Vec<Seg> {
+    let d = s.doc().unwrap();
+    hs.iter()
+        .map(|h| match &d.entity(*h).unwrap().kind {
+            EntityKind::Line(l) => ((r(l.a.x), r(l.a.y)), (r(l.b.x), r(l.b.y))),
+            k => panic!("not a line: {k:?}"),
+        })
+        .collect()
+}
+
+/// FILLET and CHAMFER move only the end at the corner: each line keeps its start and end, as in
+/// AutoCAD, whichever way it was drawn (#1178).
+#[test]
+fn fillet_and_chamfer_keep_each_line_direction() {
+    let swap = |(a, b): Seg| (b, a);
+    for cmd in ["FILLET R 0", "FILLET R 10", "CHAMFER D 0 0", "CHAMFER D 10 10"] {
+        let cut = if cmd.ends_with(" 0") { 0.0 } else { 10.0 };
+        let l1 = ((0.0, 0.0), (120.0 - cut, 0.0));
+        let l2 = ((120.0, cut), (120.0, 100.0));
+        for flip in [false, true] {
+            let mut s = Session::new();
+            let src = if flip { ["100,0 0,0", "120,100 120,20"] } else { ["0,0 100,0", "120,20 120,100"] };
+            for l in src {
+                s.cmdline(&format!("LINE {l}")).unwrap();
+                s.cmdline("").unwrap();
+            }
+            let hs: Vec<_> = s.doc().unwrap().model.iter().map(|e| e.handle).collect();
+            s.script(&format!("{cmd} 50,0 120,60\n")).unwrap();
+            assert!(s.running.is_none(), "{cmd}: {}", s.prompt_text());
+            let want = if flip { vec![swap(l1), swap(l2)] } else { vec![l1, l2] };
+            assert_eq!(ends(&s, &hs), want, "{cmd}, flipped: {flip}");
+        }
+    }
+}

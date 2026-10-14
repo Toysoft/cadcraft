@@ -1180,8 +1180,10 @@ pub(crate) fn fillet_lines(
     };
     let common = e1.common.clone();
     let doc = s.doc_mut()?;
-    doc.modify_entity(h1, |e| e.kind = line(k1, t1))?;
-    doc.modify_entity(h2, |e| e.kind = line(k2, t2))?;
+    // Only the corner end moves: each line keeps its start and end (#1178).
+    let trimmed = |l: &Line, k: Vec2, t: Vec2| if k == l.a { line(k, t) } else { line(t, k) };
+    doc.modify_entity(h1, |e| e.kind = trimmed(&l1, k1, t1))?;
+    doc.modify_entity(h2, |e| e.kind = trimmed(&l2, k2, t2))?;
     let space = s.space();
     let doc = s.doc_mut()?;
     let extra = match (chamfer, new_arc) {
