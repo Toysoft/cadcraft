@@ -1302,18 +1302,21 @@ fn dim_block_entities(d: &Drawing, dm: &Dimension, layer: &str) -> Vec<Entity> {
             });
         }
     }
-    if !g.value.is_empty() {
+    // The text, and the part after `\X` below the dimension line as a second MTEXT, as AutoCAD
+    // writes it (#1055).
+    let texts = std::iter::once((g.value.clone(), g.text_pos)).chain(g.below.clone());
+    for (contents, at) in texts.filter(|(t, _)| !t.is_empty()) {
         out.push(Entity {
             handle: Handle(0),
-            common: c,
+            common: c.clone(),
             kind: EntityKind::MText(MText {
-                insert: g.text_pos.to3(0.0),
+                insert: at.to3(0.0),
                 height: g.text_height,
                 width: 0.0,
                 attach: 5,
                 rotation: g.text_angle,
                 style: style.text_style.clone(),
-                contents: g.value.clone(),
+                contents,
                 line_spacing: 1.0,
                 line_spacing_exact: false,
                 columns: None,
