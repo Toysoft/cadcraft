@@ -53,12 +53,12 @@ for `pt`, and the catalog's accented letters (`Á Â Í Ó Ú à á â ã ç é 
 bundled fonts. The original catalog was contributed by @WladmirJunior; the remaining rows were completed
 by @RicSchonfelder with AI assistance and have not yet been proofread by a native speaker.
 
-Drawing titles, layer/layout/block/style names, parameter names and expressions, text in a
-drawing, and command-line input are user data and retain their original spelling. Clickable
-command keywords retain their English spelling so the text shown matches the input accepted
-by the engine. CLI/MCP/control responses, engine diagnostics and command history remain
-English. Uncatalogued text also falls back to English. Number formatting and the operating
-system's own file-picker controls follow the existing behavior.
+Drawing titles, layer/layout/block/style names, parameter names and expressions, and text in a
+drawing are user data and retain their original spelling. Clickable command keywords retain
+their English spelling so the text shown matches the input accepted by the engine. CLI/MCP/control
+responses and stored engine diagnostics remain English; the egui command-line history localizes
+canonical command ids at display time. Uncatalogued text also falls back to English. Number
+formatting and the operating system's own file-picker controls follow the existing behavior.
 
 The bundled egui fonts cover Ukrainian (`Ґґ Єє Іі Її`), German (`ÄÖÜ äöü ß`), and Czech
 (`ÁČĎÉĚÍŇÓŘŠŤÚŮÝŽ áčďéěíňóřšťúůýž`, including typographic quotes `„…“`).
@@ -78,6 +78,18 @@ catalog, the saved `ko` preference is kept but the interface falls back to Engli
 command reports that a font is needed, and the picker uses the readable label **Korean** wherever
 Hangul can't be shown. This change does not fix platform IME issues or localize engine output.
 
+## Localized command names
+
+A catalog may contain `@command` rows whose source is a canonical engine command id and whose
+translation is the user-facing command-line name. Italian provides a complete, collision-free
+set for every command shown by AutoComplete. With Italian active, for example, `LINEA`, `CERCHIO`,
+`SPOSTA`, and `COPIA` resolve to the internal ids `line`, `circle`, `move`, and `copy`.
+
+Resolution happens only at the UI boundary. Engine ids, Rust identifiers, JSON execution,
+scripts, CLI, MCP and the control protocol remain language-independent. Canonical English names
+continue to be accepted for compatibility, but Italian AutoComplete searches and displays only
+Italian names. Languages without `@command` rows keep the canonical English behaviour.
+
 ## Adding translations
 
 The implementation follows the display-time catalog pattern used by
@@ -94,6 +106,8 @@ The implementation follows the display-time catalog pattern used by
   Czech `one|few|other` (1; 2–4; everything else, including 0, 11, 21 and 22).
   Korean has one form (`other`) for all integer counts.
   The API takes `u64`, so fractional counts are not accepted.
+- `@command` entries map canonical engine command ids to localized command-line names. A language
+  that supplies them must cover every user-facing command without case-insensitive collisions.
 - Register a new catalog in `i18n::LANGUAGES`, add its preference variant and code/name,
   and set its integer plural rule and form count on the `Language` row.
 - Use `crate::tl!("English label")` for a literal, `i18n::t(label)` for a known dynamic UI
@@ -108,8 +122,8 @@ The implementation follows the display-time catalog pattern used by
 - Catalogs are embedded and parsed once. Missing or malformed rows cannot crash the app;
   tests reject invalid rows, duplicate keys, changed placeholders, and mismatched ellipses.
 - `cargo test -p cadcraft-ui-egui i18n` checks menu/command/tool/snap coverage, every marked
-  UI literal, locale resolution, preferences, integer plurals, bundled glyphs and actual
-  egui renders with language switching. `cargo xtask assets` checks asset attribution;
+  UI literal, locale resolution, preferences, integer plurals, localized command completeness
+  and collisions, bundled glyphs and actual egui renders with language switching. `cargo xtask assets` checks asset attribution;
   `cargo xtask ci` runs the workspace quality gates.
 
 Translations are original work under `MIT OR Apache-2.0`, written from the meaning of

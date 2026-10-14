@@ -15,7 +15,7 @@ fn catalog_is_valid_and_preserves_placeholders_and_ellipses() {
         let (catalog, errors) = parse(language.source);
         assert!(errors.is_empty(), "{}: {errors:?}", language.code);
         for ((context, key), value) in catalog {
-            assert!(["", "menu", "@plural"].contains(&context), "unknown context: {context}");
+            assert!(["", "menu", "@plural", "@command"].contains(&context), "unknown context: {context}");
             let forms: Vec<_> = if context == "@plural" { value.split('|').collect() } else { vec![value] };
             if context == "@plural" {
                 assert_eq!(forms.len(), language.plural_forms, "{}: {key}", language.code);
@@ -33,6 +33,43 @@ fn catalog_is_valid_and_preserves_placeholders_and_ellipses() {
     assert_eq!(errors.len(), 3);
     assert_eq!(tr("uk", "a future untranslated label"), "a future untranslated label");
     assert_eq!(tr("unknown", "Open"), "Open");
+}
+
+#[test]
+fn italian_command_names_are_complete_unique_and_resolve_to_canonical_ids() {
+    let catalog = catalog("it").unwrap();
+    let expected: BTreeSet<_> = cadcraft_engine::command_specs().iter().filter(|c| !c.id.contains('.')).map(|c| c.id).collect();
+    let actual: BTreeSet<_> = catalog.iter().filter_map(|((context, id), _)| (*context == "@command").then_some(*id)).collect();
+    assert_eq!(actual, expected, "the Italian command catalog must cover every user-facing command");
+
+    let mut localized = BTreeSet::new();
+    for id in actual {
+        let name = command_name("it", id);
+        assert!(name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')), "{id}: invalid command name {name}");
+        assert!(localized.insert(name.to_ascii_lowercase()), "duplicate Italian command name: {name}");
+        assert_eq!(command_id("it", name), Some(id));
+    }
+    for (localized, canonical) in [("LINEA", "line"), ("CERCHIO", "circle"), ("SPOSTA", "move"), ("COPIA", "copy")] {
+        assert_eq!(command_id("it", localized), Some(canonical));
+        assert_eq!(canonical_command("it", localized), canonical);
+    }
+    assert_eq!(canonical_command("it", "'ZOOM"), "'zoom");
+    assert_eq!(canonical_command("en", "LINE"), "LINE");
+}
+
+#[test]
+fn italian_command_line_names_start_the_canonical_engine_commands() {
+    let mut app = CadApp::new(Session::new(), Services::default());
+    app.ui.interface_language = Preference::Italian;
+    for (localized, canonical) in [("LINEA", "line"), ("CERCHIO", "circle"), ("SPOSTA", "move"), ("COPIA", "copy")] {
+        assert_eq!(app.cmdline(localized), None, "{localized}");
+        assert_eq!(app.session.running.as_ref().map(|r| r.id.as_str()), Some(canonical));
+        app.session.cancel();
+    }
+
+    app.ui.interface_language = Preference::English;
+    assert_eq!(app.cmdline("LINE"), None);
+    assert_eq!(app.session.running.as_ref().map(|r| r.id.as_str()), Some("line"));
 }
 
 /// Ukrainian is the reference translation and must cover everything. Other languages fall back
@@ -560,9 +597,9 @@ fn italian_locales_plurals_and_accents() {
             assert_eq!(count(n, "{n} contributor", "{n} contributors"), format!("{n} {word}"));
         }
         assert_eq!(t("Draw"), "Disegna");
-        assert_eq!(tr_menu("it", "Modify"), "Edita");
+        assert_eq!(tr_menu("it", "Modify"), "Modifica");
         assert_eq!(tr("it", "Modify"), "Modifica");
-        assert_eq!(tr_menu("it", "View"), "Visualizza");
+        assert_eq!(tr_menu("it", "View"), "Vista");
         assert_eq!(tr("it", "View"), "Vista");
     });
     // Italian accented letters (à è é ì ò ù and capitals) come from the bundled egui fonts.

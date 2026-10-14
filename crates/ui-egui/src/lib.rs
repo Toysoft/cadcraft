@@ -326,10 +326,11 @@ impl CadApp {
 
     /// Start a command as if typed (interactive when it has prompts).
     pub fn start(&mut self, name: &str) {
-        if menus::run_ui_command(self, name, &Value::Null).is_some() {
+        let name = i18n::canonical_command(self.language(), name);
+        if menus::run_ui_command(self, &name, &Value::Null).is_some() {
             return;
         }
-        if let Err(e) = self.session.start(name) {
+        if let Err(e) = self.session.start(&name) {
             self.session.echo(e.to_string());
         }
     }
@@ -337,15 +338,24 @@ impl CadApp {
     /// Submit a line of command-line text. A refused line is echoed to the history; the error is
     /// also returned.
     pub fn cmdline(&mut self, text: &str) -> Option<String> {
-        if !self.session.prompting() {
+        let localized = if !self.session.prompting() {
             let first = text.split_whitespace().next().unwrap_or("");
             // `cmd {json}` is a programmatic call: the engine runs it with those parameters.
             let json_form = text.trim_start().get(first.len()..).is_some_and(|rest| rest.trim_start().starts_with('{'));
-            if !first.is_empty() && !json_form && menus::run_ui_command(self, &first.to_ascii_lowercase(), &Value::Null).is_some() {
-                return None;
+            if !first.is_empty() && !json_form {
+                let canonical = i18n::canonical_command(self.language(), first);
+                if menus::run_ui_command(self, &canonical.to_ascii_lowercase(), &Value::Null).is_some() {
+                    return None;
+                }
+                if canonical != first { Some(text.replacen(first, &canonical, 1)) } else { None }
+            } else {
+                None
             }
-        }
-        let e = self.session.cmdline(text).err()?.to_string();
+        } else {
+            None
+        };
+        let submitted = localized.as_deref().unwrap_or(text);
+        let e = self.session.cmdline(submitted).err()?.to_string();
         self.session.echo(e.clone());
         Some(e)
     }

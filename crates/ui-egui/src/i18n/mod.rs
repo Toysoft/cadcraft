@@ -2,6 +2,7 @@
 //! English strings remain lookup keys; command IDs, drawing data and automation stay unchanged.
 //! Add a catalog, a `LANGUAGES` row and a preference variant to introduce another language.
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -255,6 +256,37 @@ pub fn tr_menu<'a>(language: &str, source: &'a str) -> &'a str {
 
 pub fn menu(source: &str) -> &str {
     CURRENT.with(|l| tr_menu(l.get(), source))
+}
+
+/// Whether this language supplies user-facing command names. Languages without a command
+/// catalog retain the canonical English command-line behaviour.
+pub fn has_command_names(language: &str) -> bool {
+    catalog(language).is_some_and(|c| c.keys().any(|(context, _)| *context == "@command"))
+}
+
+/// The name shown and accepted for a canonical engine command id in `language`.
+/// The id is the fallback, so command ids, automation and the engine registry stay unchanged.
+pub fn command_name<'a>(language: &str, id: &'a str) -> &'a str {
+    catalog(language).and_then(|c| c.get(&("@command", id))).copied().unwrap_or(id)
+}
+
+/// Resolve a localized user-facing command name to its canonical engine id.
+pub fn command_id(language: &str, name: &str) -> Option<&'static str> {
+    catalog(language)?.iter().find_map(|((context, id), localized)| (*context == "@command" && localized.eq_ignore_ascii_case(name)).then_some(*id))
+}
+
+/// Resolve one command token at the UI boundary. A leading apostrophe, used for transparent
+/// commands, is preserved. English/canonical names deliberately pass through for compatibility.
+pub fn canonical_command<'a>(language: &str, typed: &'a str) -> Cow<'a, str> {
+    if let Some(id) = command_id(language, typed) {
+        return Cow::Borrowed(id);
+    }
+    if let Some(name) = typed.strip_prefix('\'')
+        && let Some(id) = command_id(language, name)
+    {
+        return Cow::Owned(format!("'{id}"));
+    }
+    Cow::Borrowed(typed)
 }
 
 /// Named placeholders allow translations to reorder values. Inserted values are never looked up

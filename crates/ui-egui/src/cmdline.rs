@@ -92,7 +92,7 @@ fn tab(app: &mut CadApp) {
     {
         // Both values typed: Tab locks the second one as well.
         app.cmd.locked_second = Some(app.cmd.buffer.clone());
-    } else if let Some(s) = suggestions(&app.cmd.buffer).first() {
+    } else if let Some(s) = suggestions(&app.cmd.buffer, app.language()).first() {
         app.cmd.buffer = s.id.clone();
     }
 }
@@ -100,7 +100,7 @@ fn tab(app: &mut CadApp) {
 /// An AutoComplete suggestion for the command line.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Suggestion {
-    /// Command identifier (uppercase, e.g. "RECTANG"), used for buffer completion and execution.
+    /// User-facing command name (e.g. "RECTANG" or "RETTANGOLO"), used for completion and execution.
     pub id: String,
     /// Display text shown in the AutoComplete list (e.g. "REC (RECTANG)" or "RECOVER").
     pub display: String,
@@ -109,7 +109,7 @@ pub struct Suggestion {
 }
 
 /// Matching command names/aliases for AutoComplete.
-fn suggestions(prefix: &str) -> Vec<Suggestion> {
+fn suggestions(prefix: &str, language: &str) -> Vec<Suggestion> {
     if prefix.is_empty() || prefix.contains(' ') {
         return Vec::new();
     }
@@ -117,6 +117,20 @@ fn suggestions(prefix: &str) -> Vec<Suggestion> {
 
     let mut out: Vec<Suggestion> = Vec::new();
     let mut seen_ids: HashSet<&'static str> = HashSet::new();
+
+    // A localized command catalog is authoritative for user-facing completion: canonical ids and
+    // their English aliases remain accepted by the engine, but are not offered alongside it.
+    if crate::i18n::has_command_names(language) {
+        for spec in cadcraft_engine::command_specs() {
+            let name = crate::i18n::command_name(language, spec.id);
+            if !spec.id.contains('.') && name.to_ascii_lowercase().starts_with(&p) && seen_ids.insert(spec.id) {
+                out.push(Suggestion { id: name.to_owned(), display: name.to_owned(), label: spec.label });
+            }
+        }
+        out.sort_by(|a, b| (a.id.len(), a.id.as_str()).cmp(&(b.id.len(), b.id.as_str())));
+        out.truncate(8);
+        return out;
+    }
 
     // 1. Exact match: alias resolution or exact command name match.
     let resolved = cadcraft_engine::cmd::resolve_alias(&p);
@@ -395,6 +409,23 @@ fn visible_lines(app: &CadApp, canvas: Rect, bar: Rect) -> usize {
     app.ui.history_lines.min(MAX_LINES).min(available)
 }
 
+/// Localize command ids in engine log records only while painting the UI. The stored log remains
+/// canonical for control clients, diagnostics and command-history compatibility.
+fn display_log_line(language: &str, line: &str) -> String {
+    let display_name = |id: &str| {
+        let canonical = id.to_ascii_lowercase();
+        let localized = crate::i18n::command_name(language, &canonical);
+        if localized == canonical { id.to_owned() } else { localized.to_owned() }
+    };
+    if let Some(id) = line.strip_prefix("Command: ") {
+        return format!("{} {}", crate::i18n::tr(language, "Command:"), display_name(id));
+    }
+    if let Some(id) = line.strip_prefix(">>") {
+        return format!(">>{}", display_name(id));
+    }
+    line.to_owned()
+}
+
 pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     let t = Tokens::get();
     let w = (canvas.width() * 0.48).clamp(360.0, 760.0).min((canvas.width() - 8.0).max(0.0));
@@ -404,7 +435,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     history(app, ui, canvas, bar);
     // History lines above the bar (the expanded window replaces them).
     let n = if app.cmd.expanded { 0 } else { visible_lines(app, canvas, bar) };
-    let lines: Vec<String> = app.session.log.iter().rev().take(n).rev().cloned().collect();
+    let lines: Vec<String> = app.session.log.iter().rev().take(n).rev().map(|line| display_log_line(app.language(), line)).collect();
     if !lines.is_empty() {
         let lh = 16.0;
         let hr = Rect::from_min_size(pos2(bar.left(), bar.top() - lh * lines.len() as f32 - 4.0), vec2(w, lh * lines.len() as f32 + 2.0));
@@ -423,7 +454,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     match &prompt {
         Some(pr) => {
             // The grip modes name themselves ("** STRETCH **…").
-            let name = app.session.running.as_ref().filter(|r| r.id != "grip").map(|r| r.id.to_ascii_uppercase() + " ").unwrap_or_default();
+            let name = app
+                .session
+                .running
+                .as_ref()
+                .filter(|r| r.id != "grip")
+                .map(|r| crate::i18n::command_name(app.language(), &r.id).to_ascii_uppercase() + " ")
+                .unwrap_or_default();
             let g = p.layout_no_wrap(name, font.clone(), t.text_faint);
             let gw = g.size().x;
             p.galley(pos2(x, bar.center().y - g.size().y / 2.0), g, t.text_faint);
@@ -509,7 +546,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui, canvas: Rect) {
     );
     // AutoComplete list.
     if !app.session.prompting() {
-        let sug = suggestions(&app.cmd.buffer);
+        let sug = suggestions(&app.cmd.buffer, app.language());
         if !sug.is_empty() {
             let rh = 20.0;
             let lr = Rect::from_min_size(
@@ -571,7 +608,7 @@ fn zones(app: &CadApp, canvas: Rect, bar: Rect) -> Zones {
     let grip = Rect::from_min_max(pos2(bar.left(), top - 3.0), pos2(bar.right(), top + 3.0));
     let mut all = bar.union(grip);
     if !app.session.prompting() {
-        let k = suggestions(&app.cmd.buffer).len();
+        let k = suggestions(&app.cmd.buffer, app.language()).len();
         if k > 0 {
             let above = if n == 0 { 0.0 } else { LINE_H * n as f32 + 6.0 };
             all = all.union(Rect::from_min_size(pos2(bar.left(), bar.top() - 6.0 - 20.0 * k as f32 - above), vec2(bar.width(), 1.0)));
@@ -637,7 +674,13 @@ fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
             for l in log.get(rows).into_iter().flatten() {
                 let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), LINE_H), Sense::hover());
                 let p = ui.painter().with_clip_rect(row.intersect(ui.clip_rect()));
-                p.text(pos2(row.left(), row.center().y), egui::Align2::LEFT_CENTER, l, crate::theme::small(), t.text_dim);
+                p.text(
+                    pos2(row.left(), row.center().y),
+                    egui::Align2::LEFT_CENTER,
+                    display_log_line(app.language(), l),
+                    crate::theme::small(),
+                    t.text_dim,
+                );
             }
         },
     );
@@ -648,6 +691,14 @@ mod tests {
     use super::*;
     use cadcraft_engine::Session;
     use egui::{Event, PointerButton};
+
+    #[test]
+    fn visible_command_history_uses_localized_names_without_changing_engine_records() {
+        assert_eq!(display_log_line("it", "Command: LINE"), "Comando: LINEA");
+        assert_eq!(display_log_line("it", ">>ZOOM"), ">>ZOOM");
+        assert_eq!(display_log_line("en", "Command: LINE"), "Command: LINE");
+        assert_eq!(display_log_line("it", "Specify first point:"), "Specify first point:");
+    }
 
     #[test]
     fn compact_canvas_contains_history_controls_without_changing_line_preference() {
@@ -781,7 +832,7 @@ mod autocomplete_tests {
 
     #[test]
     fn exact_alias_is_first_suggestion_with_alias_display() {
-        let rec = suggestions("rec");
+        let rec = suggestions("rec", "en");
         assert!(!rec.is_empty());
         assert_eq!(rec[0].id, "RECTANG");
         assert_eq!(rec[0].display, "REC (RECTANG)");
@@ -791,26 +842,26 @@ mod autocomplete_tests {
         assert_eq!(rec[1].id, "RECOVER");
         assert_eq!(rec[1].display, "RECOVER");
 
-        let l = suggestions("l");
+        let l = suggestions("l", "en");
         assert_eq!(l[0].id, "LINE");
         assert_eq!(l[0].display, "L (LINE)");
 
-        let c = suggestions("c");
+        let c = suggestions("c", "en");
         assert_eq!(c[0].id, "CIRCLE");
         assert_eq!(c[0].display, "C (CIRCLE)");
 
-        let co = suggestions("co");
+        let co = suggestions("co", "en");
         assert_eq!(co[0].id, "COPY");
         assert_eq!(co[0].display, "CO (COPY)");
     }
 
     #[test]
     fn prefix_without_alias_shows_command_id() {
-        let rect = suggestions("rect");
+        let rect = suggestions("rect", "en");
         assert_eq!(rect[0].id, "RECTANG");
         assert_eq!(rect[0].display, "RECTANG");
 
-        let line = suggestions("line");
+        let line = suggestions("line", "en");
         assert_eq!(line[0].id, "LINE");
         assert_eq!(line[0].display, "LINE");
     }
@@ -821,5 +872,19 @@ mod autocomplete_tests {
         app.cmd.buffer = "rec".to_string();
         tab(&mut app);
         assert_eq!(app.cmd.buffer, "RECTANG");
+    }
+
+    #[test]
+    fn italian_autocomplete_uses_only_localized_command_names() {
+        let italian = suggestions("LIN", "it");
+        assert!(italian.iter().any(|s| s.id == "LINEA" && s.display == "LINEA" && s.label == "Line"));
+        assert!(!italian.iter().any(|s| s.id == "LINE" || s.display.contains("LINE)")));
+        assert!(suggestions("CER", "it").iter().any(|s| s.id == "CERCHIO"));
+        assert!(suggestions("SPO", "it").iter().any(|s| s.id == "SPOSTA"));
+        assert!(suggestions("COP", "it").iter().any(|s| s.id == "COPIA"));
+
+        let english = suggestions("li", "en");
+        assert!(english.iter().any(|s| s.id == "LINE"));
+        assert!(!english.iter().any(|s| s.id == "LINEA"));
     }
 }
