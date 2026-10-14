@@ -81,6 +81,7 @@ pub(crate) fn rename_refs(e: &mut Entity, f: &dyn Fn(Sym, &str) -> Option<String
             }
         }
         EntityKind::Leader(l) => fix(Sym::DimStyle, &mut l.style),
+        EntityKind::Unknown(u) => u.rename_blocks(|n| f(Sym::Block, n)),
         EntityKind::MLeader(m) => {
             fix(Sym::MLeaderStyle, &mut m.style);
             if let Some(t) = &mut m.text {
@@ -449,5 +450,32 @@ mod tests {
         assert!(has_prefix("SITE|Walls", "site|"));
         assert!(!has_prefix("SITE", "site|"));
         assert!(!has_prefix("é", "ab"));
+    }
+
+    /// An unknown dimension (ARC_DIMENSION) names its `*D` block like a modelled one: an xref's
+    /// copy follows the block's `xref|` name, or it would point at the host's own `*D1` (#1161).
+    #[test]
+    fn an_unknown_dimension_follows_its_blocks_xref_name() {
+        use cadcraft_doc::{EntityKind, Handle, RawTag, Unknown};
+        let tag = |code: i32, value: &str| RawTag { code, value: value.into() };
+        let tags = vec![tag(100, "AcDbDimension"), tag(2, "*D1"), tag(10, "1")];
+        let mut e = Entity::new(Handle(1), EntityKind::Unknown(Unknown { dxf_type: "ARC_DIMENSION".into(), tags }));
+        rename_refs(&mut e, &|sym, n| (sym == Sym::Block).then(|| format!("site|{n}")));
+        let EntityKind::Unknown(u) = &e.kind else { return };
+        assert_eq!(u.block_names().collect::<Vec<_>>(), ["site|*D1"]);
+        assert_eq!(u.tags.iter().find(|t| t.code == 10).map(|t| t.value.as_str()), Some("1"), "other groups are untouched");
+    }
+
+    /// Group 2 of an unknown entity that is not a dimension names something else (a SHAPE's
+    /// shape, a pattern, a font): an xref's `xref|` prefix must not reach it.
+    #[test]
+    fn an_unknown_entity_that_is_not_a_dimension_keeps_its_group_2() {
+        use cadcraft_doc::{EntityKind, Handle, RawTag, Unknown};
+        let tag = |code: i32, value: &str| RawTag { code, value: value.into() };
+        let tags = vec![tag(100, "AcDbShape"), tag(10, "0"), tag(2, "BOX")];
+        let mut e = Entity::new(Handle(1), EntityKind::Unknown(Unknown { dxf_type: "SHAPE".into(), tags }));
+        rename_refs(&mut e, &|sym, n| (sym == Sym::Block).then(|| format!("site|{n}")));
+        let EntityKind::Unknown(u) = &e.kind else { return };
+        assert_eq!(u.tags.iter().find(|t| t.code == 2).map(|t| t.value.as_str()), Some("BOX"));
     }
 }

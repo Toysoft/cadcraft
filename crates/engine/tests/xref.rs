@@ -9,7 +9,9 @@ use cadcraft_engine::Session;
 use cadcraft_engine::cmd::file::{IoHooks, set_io};
 use cadcraft_engine::doc::color::Color;
 use cadcraft_engine::doc::geom::Vec3;
-use cadcraft_engine::doc::{Block, Circle, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line, Linetype, MAX_BLOCK_DEPTH, XrefStatus};
+use cadcraft_engine::doc::{
+    Block, Circle, Drawing, Entity, EntityKind, Handle, Insert, Layer, Line, Linetype, MAX_BLOCK_DEPTH, RawTag, Unknown, XrefStatus,
+};
 use serde_json::json;
 
 fn hooks() {
@@ -298,6 +300,54 @@ fn circular_and_deeply_nested_references_are_bounded() {
     assert_eq!(status(&t, "f1"), Some(XrefStatus::Loaded));
     let depth = t.doc().unwrap().blocks.keys().map(|k| k.matches('|').count()).max().unwrap_or(0);
     assert!(depth <= MAX_BLOCK_DEPTH, "nesting is bounded: {depth}");
+}
+
+/// A SHAPE kept raw: its group 2 is the shape's name, not a block's.
+fn shape(name: &str) -> EntityKind {
+    let tag = |code: i32, value: &str| RawTag { code, value: value.into() };
+    EntityKind::Unknown(Unknown {
+        dxf_type: "SHAPE".into(),
+        tags: vec![tag(100, "AcDbEntity"), tag(8, "0"), tag(100, "AcDbShape"), tag(10, "0"), tag(20, "0"), tag(30, "0"), tag(40, "1"), tag(2, name)],
+    })
+}
+
+/// Every group 2 of the unknown entities of model space and of the blocks.
+fn shape_names(d: &Drawing) -> Vec<String> {
+    let g2 = |e: &Arc<Entity>| match &e.kind {
+        EntityKind::Unknown(u) => u.tags.iter().find(|t| t.code == 2).map(|t| t.value.clone()),
+        _ => None,
+    };
+    let mut out: Vec<String> = d.model.iter().filter_map(g2).collect();
+    out.extend(d.blocks.values().flat_map(|b| b.entities.iter().filter_map(g2).collect::<Vec<_>>()));
+    out
+}
+
+#[test]
+fn an_xref_shape_keeps_its_name_through_load_xbind_and_bind() {
+    hooks();
+    let dir = folder("shape");
+    let mut site = Drawing::new_metric();
+    let h = site.new_handle();
+    site.model.push(Entity::new(h, shape("BOX")));
+    let mut sym = Block::new("SYM");
+    sym.entities.push(Entity::new(Handle(0x50), shape("BOX")));
+    site.blocks.insert("SYM".into(), Arc::new(sym));
+    let h = site.new_handle();
+    site.model.push(Entity::new(h, insert("SYM", 0.0)));
+    save(&site, &dir.join("site.dxf"));
+    let host = dir.join("host.dxf");
+    save(&host_with(&[("site.dxf", false)]), &host);
+    let mut s = Session::new();
+    open(&mut s, &host);
+    assert!(shape_names(s.doc().unwrap()).iter().all(|n| n == "BOX"), "load renamed a shape: {:?}", shape_names(s.doc().unwrap()));
+
+    s.execute("xbind", &json!({ "type": "block", "names": "site|SYM" })).unwrap();
+    s.execute("-xref", &json!({ "option": "bind", "names": "site" })).unwrap();
+    assert!(shape_names(s.doc().unwrap()).iter().all(|n| n == "BOX"), "bind renamed a shape: {:?}", shape_names(s.doc().unwrap()));
+    s.execute("qsave", &json!({})).unwrap();
+    let saved = cadcraft_io::read(&std::fs::read(&host).unwrap(), "host.dxf").unwrap();
+    let names = shape_names(&saved);
+    assert!(!names.is_empty() && names.iter().all(|n| n == "BOX"), "the saved file names a shape {names:?}");
 }
 
 #[test]

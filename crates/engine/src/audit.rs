@@ -362,14 +362,19 @@ fn objects(d: &mut Drawing, out: &mut Vec<Issue>) {
 }
 
 /// Block references whose block definition is missing get an empty definition, keeping the
-/// references (and their attributes) until the block is redefined.
+/// references (and their attributes) until the block is redefined. A dimension of a kind
+/// CADCraft doesn't model (an ARC_DIMENSION, kept as read) names its `*D` block the same way;
+/// AutoCAD refuses a file whose dimension names a block it doesn't define (#1161).
 fn missing_blocks(d: &mut Drawing, out: &mut Vec<Issue>) {
     let mut missing: BTreeMap<String, usize> = BTreeMap::new();
     for e in each_entity(d) {
-        if let EntityKind::Insert(i) = &e.kind
-            && d.block(&i.block).is_none()
-        {
-            *missing.entry(i.block.clone()).or_insert(0) += 1;
+        let names: Vec<&str> = match &e.kind {
+            EntityKind::Insert(i) => vec![i.block.as_str()],
+            EntityKind::Unknown(u) if u.is_dimension() => u.block_names().collect(),
+            _ => continue,
+        };
+        for name in names.into_iter().filter(|n| !n.is_empty() && d.block(n).is_none()) {
+            *missing.entry(name.to_string()).or_insert(0) += 1;
         }
     }
     for (name, n) in missing {

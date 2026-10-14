@@ -973,6 +973,41 @@ pub struct Unknown {
     pub tags: Vec<RawTag>,
 }
 
+impl Unknown {
+    /// Whether the entity is a dimension of a kind CADCraft doesn't model. It is when its type is
+    /// a dimension one (DIMENSION, ARC_DIMENSION, LARGE_RADIAL_DIMENSION) or when it carries the
+    /// `AcDbDimension` subclass marker (group 100). Both are tested, trimmed and ignoring case:
+    /// a file may leave the marker out or write it in another case, and the entity still is a
+    /// dimension, naming its `*D` block.
+    pub fn is_dimension(&self) -> bool {
+        let ty = self.dxf_type.trim();
+        ["DIMENSION", "ARC_DIMENSION", "LARGE_RADIAL_DIMENSION"].iter().any(|d| ty.eq_ignore_ascii_case(d))
+            || self.tags.iter().any(|t| t.code == 100 && t.value.trim().eq_ignore_ascii_case("AcDbDimension"))
+    }
+
+    /// The block names the entity carries: a dimension's group 2, its anonymous `*D` block. Kept
+    /// as read, the entity goes on naming it after a save (#1161). Nothing for any other raw
+    /// entity: its group 2 names something else (a SHAPE's shape, a pattern, a font).
+    pub fn block_names(&self) -> impl Iterator<Item = &str> {
+        let dim = self.is_dimension();
+        self.tags.iter().filter(move |t| dim && t.code == 2).map(|t| t.value.trim())
+    }
+
+    /// Point the block names the entity carries (see `block_names`) at other blocks: `to` gets
+    /// each name and returns the new one, or `None` to leave it. A copy of the entity in another
+    /// drawing follows its block's new name this way. Does nothing unless it is a dimension.
+    pub fn rename_blocks(&mut self, to: impl Fn(&str) -> Option<String>) {
+        if !self.is_dimension() {
+            return;
+        }
+        for t in self.tags.iter_mut().filter(|t| t.code == 2) {
+            if let Some(n) = to(t.value.trim()) {
+                t.value = n;
+            }
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum EntityKind {

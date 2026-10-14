@@ -259,6 +259,7 @@ fn adopt(d: &mut Drawing, e: &Entity, renames: &BTreeMap<String, String>) -> Ent
                 dm.block = Some(n.clone());
             }
         }
+        EntityKind::Unknown(u) => u.rename_blocks(|b| renames.get(b).cloned()),
         _ => {}
     }
     e

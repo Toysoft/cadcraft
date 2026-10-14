@@ -117,7 +117,8 @@ fn entities(d: &Drawing) -> impl Iterator<Item = &std::sync::Arc<cadcraft_doc::E
     d.model.iter().chain(d.layouts.iter().flat_map(|l| l.entities.iter())).chain(d.blocks.values().flat_map(|b| b.entities.iter())).take(5_000_000)
 }
 
-/// Upper-case names of blocks reachable from model space, the layouts and dimensions.
+/// Upper-case names of blocks reachable from model space, the layouts and dimensions (modelled
+/// or kept raw).
 fn used_blocks(d: &Drawing) -> HashSet<String> {
     let mut used = HashSet::new();
     let mut frontier: Vec<String> = Vec::new();
@@ -126,6 +127,8 @@ fn used_blocks(d: &Drawing) -> HashSet<String> {
             EntityKind::Insert(i) => frontier.push(i.block.clone()),
             EntityKind::Dimension(dm) => frontier.extend(dm.block.clone()),
             EntityKind::MLeader(m) => frontier.extend(m.block.as_ref().map(|b| b.block.clone())),
+            // An entity kept raw (an ARC_DIMENSION) goes on naming its `*D` block (#1161).
+            EntityKind::Unknown(u) => frontier.extend(u.block_names().filter(|n| !n.is_empty()).map(str::to_string)),
             _ => {}
         }
     }
@@ -141,6 +144,7 @@ fn used_blocks(d: &Drawing) -> HashSet<String> {
                     EntityKind::Insert(i) => frontier.push(i.block.clone()),
                     EntityKind::Dimension(dm) => frontier.extend(dm.block.clone()),
                     EntityKind::MLeader(m) => frontier.extend(m.block.as_ref().map(|b| b.block.clone())),
+                    EntityKind::Unknown(u) => frontier.extend(u.block_names().filter(|n| !n.is_empty()).map(str::to_string)),
                     _ => {}
                 }
             }

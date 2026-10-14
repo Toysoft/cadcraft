@@ -1236,8 +1236,10 @@ fn is_dim_block(name: &str) -> bool {
 
 fn dim_block_plan(d: &Drawing) -> DimBlockPlan {
     let spaces: Vec<&EntityStore> = std::iter::once(&d.model).chain(d.layouts.iter().map(|l| &l.entities)).collect();
-    // Block names other objects use: inserts and multileader contents anywhere, and dimensions
-    // inside block definitions (their blocks are written as read).
+    // Block names other objects use: inserts and multileader contents anywhere, dimensions
+    // inside block definitions (their blocks are written as read), and entities of types
+    // CADCraft doesn't model, written as read (#528) and still naming their block in group 2:
+    // an ARC_DIMENSION's `*D` block (#1161).
     let mut used = std::collections::HashSet::new();
     let note = |e: &Entity, dims: bool, used: &mut std::collections::HashSet<String>| match &e.kind {
         EntityKind::Insert(i) => {
@@ -1245,6 +1247,7 @@ fn dim_block_plan(d: &Drawing) -> DimBlockPlan {
         }
         EntityKind::MLeader(m) => used.extend(m.block.as_ref().map(|b| b.block.to_ascii_uppercase())),
         EntityKind::Dimension(dm) if dims => used.extend(dm.block.as_ref().map(|n| n.to_ascii_uppercase())),
+        EntityKind::Unknown(u) => used.extend(u.block_names().map(str::to_ascii_uppercase)),
         _ => {}
     };
     for e in spaces.iter().flat_map(|s| s.iter()) {

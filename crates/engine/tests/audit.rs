@@ -300,3 +300,56 @@ fn recover_opens_the_file_with_the_fixes_applied() {
     assert_eq!(s.docs.len(), docs);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// An entity of a type CADCraft doesn't model that is a dimension (an AutoCAD ARC_DIMENSION,
+/// kept raw) names its `*D` block in group 2; a missing one is a missing block, as for a block
+/// reference (#1161: a save that lost the block left a file AutoCAD refused).
+#[test]
+fn an_unknown_dimension_naming_a_missing_block_is_reported() {
+    use cadcraft_engine::doc::{RawTag, Unknown};
+    let tag = |code: i32, value: &str| RawTag { code, value: value.into() };
+    let arc_dim = || {
+        EntityKind::Unknown(Unknown {
+            dxf_type: "ARC_DIMENSION".into(),
+            tags: vec![
+                tag(100, "AcDbEntity"),
+                tag(8, "0"),
+                tag(100, "AcDbDimension"),
+                tag(2, "*D1"),
+                tag(10, "333.8"),
+                tag(20, "169.5"),
+                tag(100, "AcDbArcDimension"),
+            ],
+        })
+    };
+    let mut d = Drawing::new_imperial();
+    raw(&mut d, &Space::Model, on("0"), arc_dim());
+    let r = cadcraft_engine::audit::check(&d);
+    let missing: Vec<&str> = r.issues.iter().filter(|i| i.kind == "missingBlock").map(|i| i.message.as_str()).collect();
+    assert_eq!(missing.len(), 1, "{}", r.message());
+    assert!(missing[0].contains("\"*D1\""), "{}", missing[0]);
+    assert!(d.block("*D1").is_none(), "check changed the drawing");
+
+    // Fixed: the block exists (empty) and the audit is clean.
+    let r = cadcraft_engine::audit::fix(&mut d);
+    assert_eq!(r.errors(), 1, "{}", r.message());
+    assert!(d.block("*D1").is_some());
+    assert!(cadcraft_engine::audit::check(&d).issues.is_empty());
+
+    // With the block there from the start, nothing to report; an unknown entity that is not a
+    // dimension (group 2 means something else) is not a block reference.
+    let mut d = Drawing::new_imperial();
+    d.blocks.insert("*D1".into(), Arc::new(Block::new("*D1")));
+    raw(&mut d, &Space::Model, on("0"), arc_dim());
+    raw(
+        &mut d,
+        &Space::Model,
+        on("0"),
+        EntityKind::Unknown(Unknown {
+            dxf_type: "SHAPE".into(),
+            tags: vec![tag(100, "AcDbEntity"), tag(8, "0"), tag(100, "AcDbShape"), tag(2, "NoSuchBlock")],
+        }),
+    );
+    let r = cadcraft_engine::audit::check(&d);
+    assert!(r.issues.is_empty(), "{}", r.message());
+}
