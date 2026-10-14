@@ -2,7 +2,8 @@
 //! access, so it runs on the web too).
 //!
 //! One page per sheet: model-space extents fitted to a sheet, or a layout at 1:1 (or the given
-//! `scale`) on its paper (paper units are millimetres in metric drawings, inches otherwise).
+//! `scale`) on its paper (paper units are millimetres in metric drawings, inches otherwise), or
+//! the layout's plot window or extents placed like model space ([`layout_frame`]).
 //! Lines are stroked paths (`m`/`l`/`S`), fills are `f` paths, colours are RGB with colour 7 printing black on white
 //! paper, and line widths come from lineweights when enabled. The page setup's plot style
 //! table (or the `plotStyleTable` option) sets the printed colours, linetypes and lineweights.
@@ -59,9 +60,12 @@ pub struct PdfOptions {
     /// Flate-compress the content stream.
     pub compress: bool,
     pub title: String,
-    /// Model space only: plot this rectangle (drawing units), fitted to the printable area,
-    /// instead of the extents. Ignored for layouts.
+    /// Plot this rectangle (drawing units) instead of the extents (model space) or, with plot
+    /// area `window`, instead of the layout's own plot window.
     pub window: Option<Bounds2>,
+    /// A layout's plot area, replacing its page setup's: `layout` (the whole sheet), `window` or
+    /// `extents`.
+    pub plot_area: Option<String>,
     /// Drawing layers become PDF layers (optional content groups). Default on.
     pub layers: bool,
     /// With `layers`: objects on layers that are off are included on PDF layers that start
@@ -100,6 +104,7 @@ impl Default for PdfOptions {
             compress: false,
             title: String::new(),
             window: None,
+            plot_area: None,
             layers: true,
             include_off_layers: false,
             links: Vec::new(),
@@ -140,6 +145,7 @@ impl PdfOptions {
             compress: v.get("compress").and_then(Value::as_bool).unwrap_or(true),
             title: v.get("title").and_then(Value::as_str).unwrap_or("").to_string(),
             window: window(v.get("window")),
+            plot_area: v.get("plotArea").and_then(Value::as_str).map(str::to_ascii_lowercase),
             margins: margins(v.get("margins")),
             hyperlinks: v.get("hyperlinks").and_then(Value::as_bool).unwrap_or(true),
             plot_transparency: v.get("plotTransparency").and_then(Value::as_bool),
@@ -310,6 +316,31 @@ pub fn page_for(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<PageSetup>
     Ok(page)
 }
 
+/// The part of a layout a plot frames, from its plot area (the options', else the page setup's):
+/// `window` plots the options' window or else the page setup's plot window, `extents` the
+/// layout's extents. `None` (model space, the `layout` area, or no usable rectangle) plots the
+/// whole sheet.
+pub(crate) fn layout_frame(d: &Drawing, space: &Space, page: &PageSetup, o: &PdfOptions) -> Option<Bounds2> {
+    let Space::Paper(_) = space else { return None };
+    let w = match o.plot_area.as_deref().unwrap_or(page.plot_area.as_str()) {
+        "window" => o.window.or_else(|| page.window.map(|[x0, y0, x1, y1]| Bounds2::new(Vec2::new(x0, y0), Vec2::new(x1, y1)))),
+        "extents" => Some(d.extents(space)),
+        _ => None,
+    }?;
+    (w.min.is_finite() && w.max.is_finite() && w.width() > 1e-9 && w.height() > 1e-9).then_some(w)
+}
+
+/// Fit, scale and placement options of a plot that frames part of a layout: unless the options
+/// say otherwise, the page setup's scale to fit, scale and centring.
+pub(crate) fn framed_options(page: &PageSetup, o: &PdfOptions) -> PdfOptions {
+    PdfOptions {
+        fit: Some(o.fit.unwrap_or(page.scale_to_fit)),
+        scale: o.scale.or(Some(page.scale).filter(|s| s.is_finite() && *s > 0.0)),
+        center: Some(o.center.unwrap_or(page.center)),
+        ..o.clone()
+    }
+}
+
 /// World → paper-unit mapping: `p' = (p - from) * s + to`.
 #[derive(Clone, Copy)]
 struct Map {
@@ -412,8 +443,19 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
         cancel: None,
     };
     let k = unit_mm * PT_PER_MM;
-    let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
-    let fit = o.fit.unwrap_or(window.is_some() || matches!(space, Space::Model));
+    // A layout plotting its window or extents is placed like model space.
+    let frame = layout_frame(d, space, &page, o);
+    let framed_opts;
+    let o = match frame {
+        Some(_) => {
+            framed_opts = framed_options(&page, o);
+            &framed_opts
+        }
+        None => o,
+    };
+    let framed = matches!(space, Space::Model) || frame.is_some();
+    let window = frame.or(o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty()));
+    let fit = o.fit.unwrap_or(window.is_some() || framed);
     // Chord tolerance: about 0.05 mm on paper.
     let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, o.scale);
     let tol = 0.05 / unit_mm / est.max(1e-300);
@@ -423,8 +465,8 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, view_height, ..ropts });
     let b = window.unwrap_or(list.bounds);
     let s = plot_scale(&b, &sheet, fit, o.scale);
-    let map = if fit || matches!(space, Space::Model) {
-        let (from, to) = placement(space, &b, fit, &sheet, o);
+    let map = if fit || framed {
+        let (from, to) = placement(framed, &b, fit, &sheet, o);
         Map { from, s, to, k }
     } else {
         Map { from: Vec2::ZERO, s, to: Vec2::ZERO, k }
@@ -433,7 +475,12 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     let mut list = list;
     cadcraft_render::pen::apply(&mut list, map.s * unit_mm);
     let media = sheet.size * k;
-    let clip_pt = if fit || matches!(space, Space::Model) {
+    let clip_pt = if let Some(f) = frame {
+        // Nothing outside the layout's window prints (a sheet may hold several title blocks).
+        let a = map.pt(f.min).max(sheet.printable.min * k);
+        let b = map.pt(f.max).min(sheet.printable.max * k);
+        Bounds2 { min: a, max: b.max(a) }
+    } else if fit || framed {
         Bounds2::new(sheet.printable.min * k, sheet.printable.max * k)
     } else {
         Bounds2::new(Vec2::ZERO, media)
@@ -452,9 +499,10 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     Ok(SheetPage { media, list, map, clip_pt, layers, links, label: sheet_name(space) })
 }
 
-/// Source and destination origins for the shared model-space PDF/PNG placement behavior.
-pub(crate) fn placement(space: &Space, bounds: &Bounds2, fit: bool, sheet: &Sheet, o: &PdfOptions) -> (Vec2, Vec2) {
-    if matches!(space, Space::Model) {
+/// Source and destination origins for the shared PDF/PNG placement of model space or a framed
+/// part of a layout (`framed`); a whole layout sheet is centred when fitted, else 1:1.
+pub(crate) fn placement(framed: bool, bounds: &Bounds2, fit: bool, sheet: &Sheet, o: &PdfOptions) -> (Vec2, Vec2) {
+    if framed {
         let from = if bounds.is_empty() {
             Vec2::ZERO
         } else if o.center.unwrap_or(true) {

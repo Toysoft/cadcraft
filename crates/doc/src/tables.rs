@@ -738,6 +738,10 @@ pub struct PageSetup {
     pub landscape: bool,
     /// "layout" | "extents" | "display" | "window" | "limits".
     pub plot_area: String,
+    /// Plot window corners `[x0, y0, x1, y1]` (DXF groups 48/49 and 140/141) in the plotted
+    /// space's units: what plot area `window` plots.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window: Option<[f64; 4]>,
     pub scale_to_fit: bool,
     /// Paper units per drawing unit.
     pub scale: f64,
@@ -762,6 +766,7 @@ impl Default for PageSetup {
             margins_mm: [6.35, 6.35, 6.35, 6.35],
             landscape: true,
             plot_area: "layout".into(),
+            window: None,
             scale_to_fit: false,
             scale: 1.0,
             plot_style_table: String::new(),

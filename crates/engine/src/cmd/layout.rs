@@ -74,13 +74,13 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("pagesetup", "Page Setup Manager...", run_pagesetup)
             .menu(&["File", "Page Setup Manager..."])
             .params(
-                "{layout?: current, device?: plotter name (PLOTTERMANAGER) | \"None\", paper?: the device's paper | \"A4\"|\"A3\"|\"Letter\"|\"ANSI B\"|…, width?, height? (mm), landscape?, margins?: [l,b,r,t] mm, lineweights?, plotArea?, scale?, scaleToFit?, center?, plotStyleTable?: \"monochrome.ctb\"|\"grayscale.ctb\"|\"default.ctb\"|\"None\"|…, displayPlotStyles?: bool, plotTransparency?: bool}",
+                "{layout?: current, device?: plotter name (PLOTTERMANAGER) | \"None\", paper?: the device's paper | \"A4\"|\"A3\"|\"Letter\"|\"ANSI B\"|…, width?, height? (mm), landscape?, margins?: [l,b,r,t] mm, lineweights?, plotArea?: layout|extents|window, window?: [[x1,y1],[x2,y2]] (paper units), scale?, scaleToFit?, center?, plotStyleTable?: \"monochrome.ctb\"|\"grayscale.ctb\"|\"default.ctb\"|\"None\"|…, displayPlotStyles?: bool, plotTransparency?: bool}",
             ),
         CommandSpec::new("plot", "Print...", |s, p| run_plot(s, &super::plotters::plot_options(s, p, "plot")?, "plot"))
             .menu(&["File", "Print..."])
             .key("Cmd+P")
             .alias(&["print"])
-            .params("{path? (else returns base64 `data`), layout?: current|\"Model\", paper?, landscape?, fit?: bool, scale?: number | \"1:50\", center?: bool (Model, default true), offset?: [x,y] mm (Model, when center is false; each within ±100000), lineweights?: bool, plotTransparency?: bool (default: the page setup's; PLOTTRANSPARENCYOVERRIDE 0/2 overrides it), plotArea?: extents|display|limits|window (Model) | layout, window?: [[x1,y1],[x2,y2]]} (typed or from the menu: the Plot dialog)")
+            .params("{path? (else returns base64 `data`), layout?: current|\"Model\", paper?, landscape?, fit?: bool, scale?: number | \"1:50\", center?: bool (Model, default true), offset?: [x,y] mm (Model, when center is false; each within ±100000), lineweights?: bool, plotTransparency?: bool (default: the page setup's; PLOTTRANSPARENCYOVERRIDE 0/2 overrides it), plotArea?: extents|display|limits|window (Model) | layout|extents|window (a layout; default: its page setup's), window?: [[x1,y1],[x2,y2]] (else a layout's page setup window)} (typed or from the menu: the Plot dialog)")
             .noundo(),
         CommandSpec::new("exportpdf", "Export to PDF...", |s, p| run_plot(s, &super::plotters::plot_options(s, p, "exportpdf")?, "exportpdf"))
             .menu(&["File", "Export to PDF..."])
@@ -631,6 +631,7 @@ fn run_pagesetup(s: &mut Session, p: &Value) -> Result<Value> {
         "margins",
         "lineweights",
         "plotArea",
+        "window",
         "scale",
         "scaleToFit",
         "center",
@@ -701,14 +702,22 @@ fn run_pagesetup(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(v) = p.get("scale") {
         page.scale = parse_scale(v).ok_or_else(|| bad(cmd, "`scale` must be positive"))?;
     }
+    if p.get("window").is_some() {
+        let w = plot_corners(p).filter(|w| w.width() > 1e-9 && w.height() > 1e-9);
+        let w = w.ok_or_else(|| bad(cmd, "`window` must be two corners [[x1, y1], [x2, y2]] with an area"))?;
+        page.window = Some([w.min.x, w.min.y, w.max.x, w.max.y]);
+    }
     if let Some(v) = str_param(p, "plotArea") {
         let v = v.to_ascii_lowercase();
         if !["layout", "extents", "display", "window", "limits"].contains(&v.as_str()) {
             return Err(bad(cmd, "`plotArea` must be layout, extents, display, window or limits"));
         }
-        // Layout plotting always prints the whole sheet; the other areas are only stored for DXF round trips.
-        if v != "layout" && v != page.plot_area {
-            return Err(bad(cmd, format!("plot area `{v}` is not available yet; layouts plot the whole sheet (`layout`)")));
+        // Layouts plot their sheet, extents or window; the other areas are only stored for DXF round trips.
+        match v.as_str() {
+            "window" if page.window.is_none() => return Err(bad(cmd, "plot area `window` needs `window`: [[x1, y1], [x2, y2]]")),
+            "layout" | "extents" | "window" => {}
+            _ if v == page.plot_area => {}
+            _ => return Err(bad(cmd, format!("plot area `{v}` is not available yet; layouts plot their sheet (`layout`), `extents` or a `window`"))),
         }
         page.plot_area = v;
     }
@@ -840,12 +849,20 @@ fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
 
 /// The model-space rectangle a plot of `plotArea` covers: `extents` (default) plots everything,
 /// `display` the current model view, `limits` the drawing limits, `window` the `window` corners.
-/// Layouts plot their sheet (`layout`).
+/// A layout plots its sheet (`layout`), its extents (`extents`) or a `window` of it (the corners
+/// given, else its page setup's plot window); without `plotArea`, what its page setup says.
 fn plot_window(s: &Session, p: &Value, cmd: &str, space: &Space) -> Result<Option<Bounds2>> {
     let area = str_param(p, "plotArea").map(str::to_ascii_lowercase);
     let w = match (space, area.as_deref()) {
-        (_, None) | (Space::Model, Some("extents")) | (Space::Paper(_), Some("layout")) => return Ok(None),
-        (Space::Paper(_), Some(_)) => return Err(bad(cmd, "a layout plots its whole sheet: `plotArea` must be layout")),
+        (_, None) | (Space::Model, Some("extents")) | (Space::Paper(_), Some("layout" | "extents")) => return Ok(None),
+        (Space::Paper(n), Some("window")) => match plot_corners(p) {
+            Some(w) => w,
+            None if s.doc()?.layout(n).is_some_and(|l| l.page.window.is_some()) => return Ok(None),
+            None => return Err(bad(cmd, "`plotArea` window needs `window`: [[x1, y1], [x2, y2]] (the layout has no plot window)")),
+        },
+        (Space::Paper(_), Some(_)) => {
+            return Err(bad(cmd, "a layout plots its sheet, extents or a window: `plotArea` must be layout, extents or window"));
+        }
         (Space::Model, Some("display")) => {
             let st = s.state()?;
             let v = st.views.iter().find(|(sp, _)| *sp == Space::Model).map(|(_, v)| *v).unwrap_or_default();
@@ -860,19 +877,17 @@ fn plot_window(s: &Session, p: &Value, cmd: &str, space: &Space) -> Result<Optio
             let hi = d.header.point("LIMMAX").map(|p| p.xy()).unwrap_or(Vec2::new(12.0, 9.0));
             Bounds2::new(lo, hi)
         }
-        (Space::Model, Some("window")) => {
-            let corners = p.get("window").and_then(Value::as_array);
-            let a = corners.and_then(|c| c.first()).and_then(point_value);
-            let b = corners.and_then(|c| c.get(1)).and_then(point_value);
-            let (Some(a), Some(b)) = (a, b) else {
-                return Err(bad(cmd, "`plotArea` window needs `window`: [[x1, y1], [x2, y2]]"));
-            };
-            Bounds2::new(a, b)
-        }
+        (Space::Model, Some("window")) => plot_corners(p).ok_or_else(|| bad(cmd, "`plotArea` window needs `window`: [[x1, y1], [x2, y2]]"))?,
         (Space::Model, Some(_)) => return Err(bad(cmd, "`plotArea` must be extents, display, limits or window (layouts: layout)")),
     };
     let ok = w.min.is_finite() && w.max.is_finite() && w.width() > 1e-9 && w.height() > 1e-9;
     if ok { Ok(Some(w)) } else { Err(bad(cmd, "the plot area is empty")) }
+}
+
+/// The `window` option's two corners.
+fn plot_corners(p: &Value) -> Option<Bounds2> {
+    let corners = p.get("window").and_then(Value::as_array)?;
+    Some(Bounds2::new(corners.first().and_then(point_value)?, corners.get(1).and_then(point_value)?))
 }
 
 #[cfg(test)]
@@ -1040,6 +1055,29 @@ mod tests {
     }
 
     #[test]
+    fn layouts_plot_their_window_or_extents() {
+        let mut s = Session::new();
+        let plot = |s: &mut Session, p: Value| s.execute("plot", &p).map(|r| r["bytes"].as_u64().unwrap_or(0));
+        // Windows without an area, a second corner or finite corners are refused.
+        for w in [json!([[0, 0], [0, 5]]), json!([[0, 0]]), json!([[0, "x"], [1, 1]])] {
+            assert!(s.execute("pagesetup", &json!({"layout": "Layout1", "window": w})).is_err(), "{w}");
+        }
+        let r = s.execute("pagesetup", &json!({"layout": "Layout1", "plotArea": "window", "window": [[4, 3], [1, 1]]})).unwrap();
+        assert_eq!((r["page"]["plotArea"].as_str(), &r["page"]["window"]), (Some("window"), &json!([1.0, 1.0, 4.0, 3.0])));
+        s.execute("pagesetup", &json!({"layout": "Layout1", "plotArea": "extents"})).unwrap();
+        assert_eq!(s.doc().unwrap().layout("Layout1").unwrap().page.window, Some([1.0, 1.0, 4.0, 3.0]), "the window is kept");
+        // PLOT takes the page setup's area, or another one for this plot.
+        let l1 = json!({"layout": "Layout1"});
+        assert!(plot(&mut s, l1.clone()).unwrap() > 0);
+        for area in ["window", "extents", "layout"] {
+            assert!(plot(&mut s, json!({"layout": "Layout1", "plotArea": area})).unwrap() > 0, "{area}");
+        }
+        assert!(plot(&mut s, json!({"layout": "Layout1", "plotArea": "window", "window": [[0, 0], [2, 2]]})).unwrap() > 0);
+        assert!(plot(&mut s, json!({"layout": "Layout2", "plotArea": "window"})).is_err(), "Layout2 has no plot window");
+        assert!(plot(&mut s, json!({"layout": "Layout1", "plotArea": "limits"})).is_err());
+    }
+
+    #[test]
     fn pagesetup_paper_table() {
         let mut s = Session::new();
         let r = s.execute("pagesetup", &json!({"layout": "Layout1", "paper": "A3", "landscape": true, "margins": [5, 5, 5, 5]})).unwrap();
@@ -1051,10 +1089,11 @@ mod tests {
         assert!(s.execute("pagesetup", &json!({"layout": "Layout1", "margins": [1, 2]})).is_err());
         assert!(s.execute("pagesetup", &json!({"layout": "Layout1", "width": 1e308, "height": 5})).is_err());
         assert!(s.execute("pagesetup", &json!({"paper": "A4"})).is_err(), "model tab needs a layout");
-        for area in ["extents", "display", "window", "limits"] {
+        for area in ["display", "limits"] {
             let e = s.execute("pagesetup", &json!({"layout": "Layout1", "plotArea": area})).unwrap_err();
             assert!(e.to_string().contains("not available yet"), "{area}: {e}");
         }
+        assert!(s.execute("pagesetup", &json!({"layout": "Layout1", "plotArea": "window"})).is_err(), "no window yet");
         let r = s.execute("pagesetup", &json!({"layout": "Layout1", "plotArea": "Layout"})).unwrap();
         assert_eq!(r["page"]["plotArea"], "layout");
         let report = s.execute("pagesetup", &Value::Null).unwrap();

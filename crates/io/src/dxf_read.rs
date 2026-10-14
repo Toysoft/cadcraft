@@ -2229,8 +2229,18 @@ fn page_setup(t: &T) -> PageSetup {
         _ => "layout",
     }
     .into();
+    p.window = plot_window(t);
     p.plot_style_table = t.s(7).unwrap_or_default();
     p
+}
+
+/// The plot window (groups 48/49 and 140/141) as `[x0, y0, x1, y1]`, lower-left corner first:
+/// `None` unless it is finite, within ±1e12 and has an area.
+fn plot_window(t: &T) -> Option<[f64; 4]> {
+    let v = |c: i32| t.f(c).filter(|v| v.is_finite() && v.abs() <= 1e12);
+    let (x0, y0, x1, y1) = (v(48)?, v(49)?, v(140)?, v(141)?);
+    let w = [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)];
+    (w[2] - w[0] > 1e-9 && w[3] - w[1] > 1e-9).then_some(w)
 }
 
 /// A layout's saved paper-space view (centre, height) from CADCraft xdata.
@@ -2289,4 +2299,22 @@ fn helix(tags: &[Tag]) -> Helix {
 /// reader makes it. AutoLISP's `entmake` and `entmod` are built on it.
 pub fn entity_from_groups(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
     entity(&kind.to_ascii_uppercase(), tags)
+}
+
+#[cfg(test)]
+mod plot_window_tests {
+    use super::*;
+
+    #[test]
+    fn plot_windows_are_ordered_and_hostile_ones_dropped() {
+        let read = |v: [f64; 4]| {
+            let tags: Vec<Tag> = [48, 49, 140, 141].iter().zip(v).map(|(c, v)| Tag::f(*c, v)).collect();
+            plot_window(&T(&tags))
+        };
+        assert_eq!(read([430.0, 277.0, 10.0, -20.0]), Some([10.0, -20.0, 430.0, 277.0]));
+        for v in [[0.0, 0.0, 0.0, 5.0], [0.0, 0.0, f64::NAN, 5.0], [0.0, 0.0, 1e300, 5.0], [-1e13, 0.0, 1.0, 5.0]] {
+            assert_eq!(read(v), None, "{v:?}");
+        }
+        assert_eq!(plot_window(&T(&[Tag::f(48, 1.0)])), None, "missing corners");
+    }
 }

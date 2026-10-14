@@ -65,6 +65,9 @@ fn fit_scale(b: &Bounds2, sheet: &Sheet, o: &PdfOptions) -> f64 {
 fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let o = PdfOptions::from_json(opts);
     let (sheet, page) = sheet(d, space, &o)?;
+    // A layout plotting its window or extents is placed like model space.
+    let frame = pdf::layout_frame(d, space, &page, &o);
+    let o = if frame.is_some() { pdf::framed_options(&page, &o) } else { o };
     let dpi = opts.get("resolution").and_then(Value::as_f64).filter(|r| r.is_finite()).unwrap_or(300.0).clamp(50.0, 2400.0);
     // Pixels per paper unit, lowered so the image stays within the caps.
     let mut k = sheet.unit_mm / 25.4 * dpi;
@@ -79,9 +82,10 @@ fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let lineweights = o.lineweights.unwrap_or(if space.is_paper() { page.lineweights } else { true });
     let table = cadcraft_doc::plot_style_table(d, &page.plot_style_table).map(Arc::new);
     // Paper units per drawing unit: 1 for a layout at 1:1, the fitted scale for model space.
+    let framed = matches!(space, Space::Model) || frame.is_some();
     let fit = matches!(space, Space::Model) || o.fit == Some(true);
-    let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
-    let est = if fit { fit_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, &o) } else { 1.0 };
+    let window = frame.or(o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty()));
+    let est = if fit || framed { fit_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, &o) } else { 1.0 };
     // Chord tolerance: a fifth of a pixel.
     let tolerance = (0.2 / (k * est)).max(1e-9);
     let transparency = o.plot_transparency.unwrap_or(page.plot_transparency);
@@ -89,12 +93,12 @@ fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let mut list = cadcraft_render::build_plot(d, space, &ropts);
     let half = Vec2::new(f64::from(width), f64::from(height)) / (2.0 * k);
     let b = window.unwrap_or(list.bounds);
-    let s = if fit { fit_scale(&b, &sheet, &o) } else { 1.0 };
+    let s = if fit || framed { fit_scale(&b, &sheet, &o) } else { 1.0 };
     // Plot style ends, joins and fill patterns at the plot scale, as PDF draws them (a layout's
     // are already drawn).
     cadcraft_render::pen::apply(&mut list, s * sheet.unit_mm);
-    let view = if fit {
-        let (from, to) = pdf::placement(space, &b, true, &sheet, &o);
+    let view = if fit || framed {
+        let (from, to) = pdf::placement(framed, &b, fit, &sheet, &o);
         // The world point at the image centre, mapped through the same paper origin as PDF.
         let center = from + (half - to) / s;
         raster::View { center, scale: k * s, width, height }
@@ -103,7 +107,12 @@ fn png(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     };
     let px_per_mm = if lineweights { (k / sheet.unit_mm) as f32 } else { 0.0 };
     let ro = raster::RasterOptions { background: Rgb(255, 255, 255), hairline: 1.0, px_per_mm, antialias: true };
-    raster::render_png(&list, &view, &ro).ok_or_else(|| IoError::Format("render failed".into()))
+    let mut pm = raster::render(&list, &view, &ro).ok_or_else(|| IoError::Format("render failed".into()))?;
+    // Nothing outside a layout's window prints (a sheet may hold several title blocks).
+    if let Some(f) = frame {
+        raster::blank_outside(&mut pm, &view, &f, ro.background);
+    }
+    pm.encode_png().map_err(|e| IoError::Format(format!("render failed: {e}")))
 }
 
 fn svg(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
@@ -111,7 +120,8 @@ fn svg(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     let Space::Model = space else {
         let (sheet, page) = sheet(d, space, &o)?;
         let transparency = o.plot_transparency.unwrap_or(page.plot_transparency);
-        return Ok(crate::svg::export_window_with(d, space, Some(sheet.bounds()), transparency).into_bytes());
+        let shown = pdf::layout_frame(d, space, &page, &o).unwrap_or_else(|| sheet.bounds());
+        return Ok(crate::svg::export_window_with(d, space, Some(shown), transparency).into_bytes());
     };
     // Model space as plotted: the plot style table, lineweights, and the table's ends, joins and
     // fills at the scale that fits the window (or the extents) on the device's paper.
@@ -134,7 +144,7 @@ fn svg(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cadcraft_doc::{Common, EntityKind, Line};
+    use cadcraft_doc::{Common, EntityKind, Line, Solid};
     use cadcraft_geom::{Bounds2, Vec2, Vec3};
     use serde_json::json;
 
@@ -175,23 +185,23 @@ mod tests {
         let metric = drawing();
         let metric_sheet = Sheet::from_page(&pdf::page_for(&metric, &model, &PdfOptions::default()).unwrap(), 1.0);
         let centered = PdfOptions::from_json(&json!({"center": true}));
-        assert_eq!(pdf::placement(&model, &bounds, true, &metric_sheet, &PdfOptions::default()), (bounds.center(), metric_sheet.printable.center()));
-        assert_eq!(pdf::placement(&model, &bounds, true, &metric_sheet, &centered), (bounds.center(), metric_sheet.printable.center()));
+        assert_eq!(pdf::placement(true, &bounds, true, &metric_sheet, &PdfOptions::default()), (bounds.center(), metric_sheet.printable.center()));
+        assert_eq!(pdf::placement(true, &bounds, true, &metric_sheet, &centered), (bounds.center(), metric_sheet.printable.center()));
         let moved = PdfOptions::from_json(&json!({"center": false, "offset": [10.0, 20.0]}));
-        assert_eq!(pdf::placement(&model, &bounds, true, &metric_sheet, &moved), (bounds.min, metric_sheet.printable.min + Vec2::new(10.0, 20.0)));
+        assert_eq!(pdf::placement(true, &bounds, true, &metric_sheet, &moved), (bounds.min, metric_sheet.printable.min + Vec2::new(10.0, 20.0)));
         let origin = PdfOptions::from_json(&json!({"center": false}));
-        assert_eq!(pdf::placement(&model, &bounds, true, &metric_sheet, &origin), (bounds.min, metric_sheet.printable.min));
+        assert_eq!(pdf::placement(true, &bounds, true, &metric_sheet, &origin), (bounds.min, metric_sheet.printable.min));
         let negative = PdfOptions::from_json(&json!({"center": false, "offset": [-10.0, -20.0]}));
-        assert_eq!(pdf::placement(&model, &bounds, true, &metric_sheet, &negative), (bounds.min, metric_sheet.printable.min - Vec2::new(10.0, 20.0)));
+        assert_eq!(pdf::placement(true, &bounds, true, &metric_sheet, &negative), (bounds.min, metric_sheet.printable.min - Vec2::new(10.0, 20.0)));
 
         let imperial = Drawing::new_imperial();
         let imperial_sheet = Sheet::from_page(&pdf::page_for(&imperial, &model, &PdfOptions::default()).unwrap(), 25.4);
         assert_eq!(
-            pdf::placement(&model, &bounds, true, &imperial_sheet, &moved),
+            pdf::placement(true, &bounds, true, &imperial_sheet, &moved),
             (bounds.min, imperial_sheet.printable.min + Vec2::new(10.0 / 25.4, 20.0 / 25.4))
         );
         assert_eq!(
-            pdf::placement(&model, &bounds, true, &imperial_sheet, &negative),
+            pdf::placement(true, &bounds, true, &imperial_sheet, &negative),
             (bounds.min, imperial_sheet.printable.min - Vec2::new(10.0 / 25.4, 20.0 / 25.4))
         );
     }
@@ -224,6 +234,63 @@ mod tests {
 
         let layout = Space::Paper(d.layouts[0].name.clone());
         assert_eq!(plot(&d, &layout, &json!({})).unwrap(), plot(&d, &layout, &json!({"center": false, "offset": [10.0, 20.0]})).unwrap());
+    }
+
+    /// A metric layout on A4 landscape (5 mm margins) holding a 20-unit square inside its plot
+    /// window (0,0)-(100,50), and a 4-unit square just above the window.
+    fn windowed_layout() -> (Drawing, Space) {
+        let mut d = Drawing::new_metric();
+        let space = Space::Paper(d.layouts[0].name.clone());
+        let square = |x: f64, y: f64, s: f64| {
+            let p = |dx: f64, dy: f64| Vec3::new(x + dx, y + dy, 0.0);
+            EntityKind::Solid(Solid { corners: [p(0.0, 0.0), p(s, 0.0), p(0.0, s), p(s, s)] })
+        };
+        d.add(&space, Common::default(), square(40.0, 15.0, 20.0)).unwrap();
+        d.add(&space, Common::default(), square(40.0, 52.0, 4.0)).unwrap();
+        let page = &mut d.layouts[0].page;
+        (page.width_mm, page.height_mm, page.landscape, page.margins_mm) = (210.0, 297.0, true, [5.0; 4]);
+        (page.plot_area, page.window, page.scale_to_fit, page.center) = ("window".into(), Some([0.0, 0.0, 100.0, 50.0]), true, true);
+        (d, space)
+    }
+
+    #[test]
+    fn layouts_plot_their_window_fitted_and_clipped() {
+        let (d, layout) = windowed_layout();
+        let dark = |png: &[u8], x: u32, y: u32| tiny_skia::Pixmap::decode_png(png).unwrap().pixel(x, y).unwrap().red() < 128;
+        // The window fits the printable area at 2.87 mm per unit, centred: the inner square's
+        // centre (50, 25) lands at the sheet's centre and the outer square (centre 42, 54) at
+        // (125.5, 188.2) mm, inside the margins but outside the window, so it isn't drawn.
+        let png = json!({"output": "png", "resolution": 50});
+        let at = |mm: (f64, f64)| ((mm.0 / 25.4 * 50.0) as u32, ((210.0 - mm.1) / 25.4 * 50.0) as u32);
+        let (centre, above) = (at((148.5, 105.0)), at((125.5, 188.2)));
+        let windowed = plot(&d, &layout, &png).unwrap();
+        assert!(dark(&windowed, centre.0, centre.1) && !dark(&windowed, above.0, above.1));
+        // Plotting the whole sheet instead draws both squares 1:1 from the sheet's corner.
+        let whole = plot(&d, &layout, &json!({"output": "png", "resolution": 50, "plotArea": "layout"})).unwrap();
+        let (inner, outer) = (at((50.0, 25.0)), at((42.0, 54.0)));
+        assert!(dark(&whole, inner.0, inner.1) && dark(&whole, outer.0, outer.1) && !dark(&whole, centre.0, centre.1));
+        // Extents frame both squares: the outer one is drawn.
+        let extents = plot(&d, &layout, &json!({"output": "png", "resolution": 50, "plotArea": "extents"})).unwrap();
+        assert_ne!(extents, windowed);
+
+        // PDF: the content is clipped to the window as placed on the sheet (in points).
+        let clip = |pdf: Vec<u8>| -> Vec<f64> {
+            let text = String::from_utf8_lossy(&pdf).into_owned();
+            let line = text.lines().find(|l| l.ends_with(" re W n")).unwrap_or_default().to_string();
+            line.split_whitespace().take(4).filter_map(|v| v.parse().ok()).collect()
+        };
+        let pt = 72.0 / 25.4;
+        let want = [5.0 * pt, 33.25 * pt, 287.0 * pt, 143.5 * pt];
+        let got = clip(plot(&d, &layout, &json!({"compress": false})).unwrap());
+        assert!(got.len() == 4 && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.05), "{got:?}");
+        // An explicit window for this plot replaces the page setup's; not fitting plots it at the
+        // page setup's scale (1:1), centred.
+        let got = clip(plot(&d, &layout, &json!({"compress": false, "window": [[0, 0], [100, 50]], "fit": false})).unwrap());
+        let want = [98.5 * pt, 80.0 * pt, 100.0 * pt, 50.0 * pt];
+        assert!(got.len() == 4 && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.05), "{got:?}");
+        // SVG shows the window.
+        let svg = String::from_utf8(plot(&d, &layout, &json!({"output": "svg"})).unwrap()).unwrap();
+        assert!(svg.contains(r#"viewBox="0 0 100.000000 50.000000""#), "{}", svg.get(..200).unwrap_or(&svg));
     }
 
     #[test]

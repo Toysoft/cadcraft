@@ -155,6 +155,24 @@ pub fn render(list: &DisplayList, view: &View, o: &RasterOptions) -> Option<Pixm
     Some(pm)
 }
 
+/// Paint everything outside the world rectangle `keep` with `background`.
+pub fn blank_outside(pm: &mut Pixmap, view: &View, keep: &Bounds2, background: Rgb) {
+    let (x0, y1) = view.to_screen(keep.min);
+    let (x1, y0) = view.to_screen(keep.max);
+    let (w, h) = (pm.width() as f32, pm.height() as f32);
+    let mut paint = Paint::default();
+    paint.set_color_rgba8(background.0, background.1, background.2, 255);
+    paint.anti_alias = false;
+    let (x0, x1) = (x0.clamp(0.0, w), x1.clamp(0.0, w));
+    let (y0, y1) = (y0.clamp(0.0, h), y1.clamp(0.0, h));
+    // Above, below, left and right of the kept rectangle.
+    for (l, t, r, b) in [(0.0, 0.0, w, y0), (0.0, y1, w, h), (0.0, y0, x0, y1), (x1, y0, w, y1)] {
+        if let Some(rect) = tiny_skia::Rect::from_ltrb(l, t, r, b) {
+            pm.fill_rect(rect, &paint, Transform::identity(), None);
+        }
+    }
+}
+
 /// Render and encode as PNG.
 pub fn render_png(list: &DisplayList, view: &View, o: &RasterOptions) -> Option<Vec<u8>> {
     render(list, view, o)?.encode_png().ok()

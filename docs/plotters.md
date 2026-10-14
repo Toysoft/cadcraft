@@ -109,8 +109,25 @@ In the file name, characters other than letters, digits, spaces and `-_()+,` bec
   - `exportpdf` takes the same options and always writes PDF.
 
 Model-space PDF plots don't apply the paper's margins yet. They fit the drawing inside the
-default margins. PNG plots apply them. SVG plots show a layout's whole sheet, or the
-model-space extents.
+default margins. PNG plots apply them. SVG plots show a layout's sheet (or its plot window or
+extents), or the model-space extents.
+
+## Layout plot areas
+
+A layout plots one of these areas (the page setup's `plotArea`, or `plot {plotArea}` for one
+plot):
+
+- `layout` plots the whole sheet at 1:1.
+- `window` plots a rectangle of paper space: `plot {window}`, else the page setup's plot window
+  (`pagesetup {window: [[x1, y1], [x2, y2]]}`; DXF/DWG PLOTSETTINGS groups 48/49 and 140/141).
+  Offices often keep several title blocks side by side in one layout and plot each through a
+  window.
+- `extents` plots everything in paper space.
+
+A window or extents plot is placed like a model-space plot: scaled to fit (the page setup's
+"Fit to paper", or `fit`) or at the page setup's scale (or `scale`), centred when the page setup
+says so (or `center`), else from the printable area's lower-left corner. Nothing outside the
+window prints. `display` and `limits` are kept for DXF round trips but not plotted yet.
 
 ## Plot transparency
 

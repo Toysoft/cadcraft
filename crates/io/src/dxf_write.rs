@@ -2377,6 +2377,7 @@ fn tags_for(d: &Drawing, version: Version, target: Version) -> Vec<Tag> {
             "window" => 4,
             _ => 5,
         };
+        let win = page.window.unwrap_or_default();
         w.s(0, "LAYOUT");
         w.s(5, h);
         w.s(330, layout_dict.clone());
@@ -2395,10 +2396,10 @@ fn tags_for(d: &Drawing, version: Version, target: Version) -> Vec<Tag> {
             (45, page.height_mm),
             (46, 0.0),
             (47, 0.0),
-            (48, 0.0),
-            (49, 0.0),
-            (140, 0.0),
-            (141, 0.0),
+            (48, win[0]),
+            (49, win[1]),
+            (140, win[2]),
+            (141, win[3]),
             (142, scale),
             (143, 1.0),
         ] {

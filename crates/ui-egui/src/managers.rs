@@ -499,8 +499,7 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
             });
             let Some((_, name, page)) = layouts.iter().find(|l| l.1 == sel) else { return };
             right.label(RichText::new(format!("Page setup of {name}")).strong());
-            // Layout plotting always prints the whole sheet, so only that area is offered.
-            let rows = PageRows { areas: &["layout"], scale: true, center: true };
+            let rows = PageRows { areas: layout_areas(page), scale: true, center: true };
             egui::Grid::new("pagesetup_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(right, |ui| {
                 if let Some((k, v)) = page_rows(ui, egui::Id::new(("pagesetup", name)), page, &rows, &choices, None) {
                     action = Some(("pagesetup", json!({ "layout": name, k: v })));
@@ -802,6 +801,12 @@ pub(crate) fn set_flag(ctx: &egui::Context, id: &str, on: bool) {
 /// Plot areas for model space (a layout always plots its sheet).
 const MODEL_AREAS: &[&str] = &["extents", "display", "limits", "window"];
 
+/// The plot areas a layout offers: its sheet, its extents, and its page setup's plot window when
+/// it has one.
+fn layout_areas(page: &cadcraft_doc::PageSetup) -> &'static [&'static str] {
+    if page.window.is_some() { &["layout", "extents", "window"] } else { &["layout", "extents"] }
+}
+
 /// The Plot dialog's settings until OK.
 #[derive(Clone)]
 struct PlotState {
@@ -821,7 +826,9 @@ struct PlotState {
 fn plot_page(d: &cadcraft_doc::Drawing, target: &str) -> cadcraft_doc::PageSetup {
     if let Some(l) = d.layouts.iter().find(|l| l.name == target) {
         let mut page = l.page.clone();
-        page.plot_area = "layout".into();
+        if !layout_areas(&page).contains(&page.plot_area.as_str()) {
+            page.plot_area = "layout".into();
+        }
         return page;
     }
     let mut page = cadcraft_doc::PageSetup { plot_area: "extents".into(), scale_to_fit: true, ..Default::default() };
@@ -876,8 +883,8 @@ fn plot_params(st: &PlotState, preview_dpi: Option<f64>) -> Value {
         if style_label(page) != "None" {
             o.insert("plotStyleTable".into(), json!(page.plot_style_table));
         }
+        o.insert("plotArea".into(), json!(page.plot_area));
         if st.target == "Model" {
-            o.insert("plotArea".into(), json!(page.plot_area));
             if output != "svg" {
                 o.insert("center".into(), json!(st.center));
                 if !st.center {
@@ -952,7 +959,7 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
                 let rows = if model {
                     PageRows { areas: MODEL_AREAS, scale: true, center: false }
                 } else {
-                    PageRows { areas: &["layout"], scale: false, center: false }
+                    PageRows { areas: layout_areas(&st.page), scale: false, center: false }
                 };
                 let placement = model.then_some((&mut st.center, &mut st.offset_mm, offset_supported));
                 if let Some((k, v)) = page_rows(ui, egui::Id::new(("plot", st.target.as_str())), &st.page, &rows, &choices, placement) {
@@ -1200,6 +1207,20 @@ mod plot_dialog_tests {
         assert!(page.plot_transparency);
         apply_page_change(&mut st.page, "plotTransparency", &json!(false));
         assert_eq!(plot_params(&st, None)["plotTransparency"], json!(false));
+    }
+
+    #[test]
+    fn a_layouts_plot_window_reaches_its_plot_dialog() {
+        let mut s = Session::new();
+        let page = plot_page(s.doc().unwrap(), "Layout1");
+        assert_eq!((page.plot_area.as_str(), layout_areas(&page)), ("layout", &["layout", "extents"][..]));
+        s.execute("pagesetup", &json!({ "layout": "Layout1", "plotArea": "window", "window": [[10, 0], [0, 5]] })).unwrap();
+        let mut st = state("Layout1");
+        st.page = plot_page(s.doc().unwrap(), "Layout1");
+        assert_eq!((st.page.plot_area.as_str(), st.page.window), ("window", Some([0.0, 0.0, 10.0, 5.0])));
+        assert!(layout_areas(&st.page).contains(&"window"));
+        assert_eq!(plot_params(&st, None)["plotArea"], json!("window"));
+        assert_eq!(plot_params(&st, Some(150.0))["plotArea"], json!("window"), "the preview plots the window too");
     }
 
     #[test]

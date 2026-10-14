@@ -552,12 +552,20 @@ fn dxf_roundtrips_page_setup() {
         p.height_mm = a3.height_mm;
         p.landscape = false;
         p.margins_mm = [5.0, 6.0, 7.0, 8.0];
+        p.plot_area = "window".into();
+        p.window = Some([10.0, -20.0, 430.0, 277.0]);
     }
     let back = read_dxf(write_dxf(&d).as_bytes()).unwrap();
     let p = &back.layout("Layout1").unwrap().page;
     assert_eq!((p.width_mm, p.height_mm, p.landscape), (297.0, 420.0, false));
     assert_eq!(p.margins_mm, [5.0, 6.0, 7.0, 8.0]);
     assert_eq!(p.paper, a3.name);
+    assert_eq!((p.plot_area.as_str(), p.window), ("window", Some([10.0, -20.0, 430.0, 277.0])));
+    // DWG keeps the plot window too.
+    let dwg = cadcraft_dwg::dxf_to_dwg(write_dxf(&d).as_bytes()).unwrap();
+    let back = read_dxf(&cadcraft_dwg::dwg_to_dxf(&dwg).unwrap()).unwrap();
+    assert_eq!(back.layout("Layout1").unwrap().page.window, Some([10.0, -20.0, 430.0, 277.0]));
+    assert_eq!(sample().layouts[0].page.window, None, "a layout without one");
 }
 
 // ---------------------------------------------------------------------------------------------
