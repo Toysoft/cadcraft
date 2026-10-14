@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use cadcraft_doc::{Block, Common, DimKind, Dimension, Drawing, Entity, EntityKind, Handle, Insert, Line, Space};
+use cadcraft_doc::{Block, Common, DimKind, DimStyle, Dimension, Drawing, Entity, EntityKind, Handle, Insert, Line, Space, Table, TableCell};
 use cadcraft_geom::Vec3;
 
 fn linear(a: [f64; 2], b: [f64; 2], at: [f64; 2]) -> Dimension {
@@ -50,7 +50,7 @@ fn pairs(dxf: &str) -> Vec<(i32, String)> {
     lines.chunks(2).filter_map(|c| Some((c.first()?.trim().parse().ok()?, c.get(1)?.trim().to_string()))).collect()
 }
 
-/// Names of the BLOCK definitions and of the blocks DIMENSIONs and INSERTs reference.
+/// Names of the BLOCK definitions and of the blocks DIMENSIONs, INSERTs and ACAD_TABLEs reference.
 fn blocks_and_refs(dxf: &str) -> (Vec<String>, Vec<String>) {
     let p = pairs(dxf);
     let (mut blocks, mut refs) = (Vec::new(), Vec::new());
@@ -60,7 +60,7 @@ fn blocks_and_refs(dxf: &str) -> (Vec<String>, Vec<String>) {
             kind = v;
         } else if code == 2 && kind == "BLOCK" {
             blocks.push(v);
-        } else if code == 2 && (kind == "DIMENSION" || kind == "INSERT") {
+        } else if code == 2 && (kind == "DIMENSION" || kind == "INSERT" || kind == "ACAD_TABLE") {
             refs.push(v);
         }
     }
@@ -238,4 +238,110 @@ fn an_unedited_dimension_keeps_the_block_it_was_read_with() {
         .unwrap();
     let again = cadcraft_io::read_dxf(cadcraft_io::write_dxf(&edited).as_bytes()).unwrap();
     assert_eq!(circles(&again).0, 0);
+}
+
+/// The value of a header variable, and the handle of a table record by name.
+fn header_var(dxf: &str, var: &str) -> Option<String> {
+    let p = pairs(dxf);
+    let at = p.iter().position(|(c, v)| *c == 9 && v == var)?;
+    p.get(at + 1).map(|(_, v)| v.clone())
+}
+
+/// The handle (group 5) of the first `kind` table record named `name`.
+fn record_handle(dxf: &str, kind: &str, name: &str) -> Option<String> {
+    let p = pairs(dxf);
+    let mut handle = None;
+    let mut rec = String::new();
+    for (code, v) in p {
+        match code {
+            0 => {
+                rec = v;
+                handle = None;
+            }
+            5 => handle = Some(v),
+            2 if rec == kind && v == name => return handle,
+            _ => {}
+        }
+    }
+    None
+}
+
+fn table_2x2() -> Table {
+    let cell = |t: &str| TableCell { text: t.into(), ..Default::default() };
+    Table {
+        insert: Vec3::ZERO,
+        col_widths: vec![2.5, 2.5],
+        row_heights: vec![0.6, 0.6],
+        cells: vec![vec![cell("A1"), cell("B1")], vec![cell("A2"), cell("B2")]],
+        ..Table::default()
+    }
+}
+
+/// Issue #1177: a drawing with a table renumbered everything on every save. The `*T` block
+/// is rebuilt on save and dropped on read, but its entities (numbered above the drawing's own
+/// seed) raised that seed while being read, so the next save started every structural handle
+/// 0x1057 higher: `$HANDSEED` 115B → 21B2 → 3209, layer "0" 113D → 2194 → 31EB.
+#[test]
+fn a_table_keeps_its_handles_and_seed_over_three_cycles() {
+    let mut d = Drawing::new_metric();
+    let h = d.add(&Space::Model, Common::default(), EntityKind::Table(table_2x2())).unwrap();
+    let d0 = cadcraft_io::write_dxf(&d);
+    let d1 = resave(&d0);
+    let d2 = resave(&d1);
+    let d3 = resave(&d2);
+    for (i, f) in [&d1, &d2, &d3].into_iter().enumerate() {
+        assert_eq!(header_var(f, "$HANDSEED"), header_var(&d0, "$HANDSEED"), "save {}", i + 1);
+        assert_eq!(record_handle(f, "LAYER", "0"), record_handle(&d0, "LAYER", "0"), "save {}", i + 1);
+        let (blocks, refs) = blocks_and_refs(f);
+        let tables: Vec<&String> = blocks.iter().filter(|b| b.starts_with("*T")).collect();
+        assert_eq!(tables, vec!["*T1"], "save {}", i + 1);
+        assert!(refs.contains(&"*T1".to_string()), "save {}: {refs:?}", i + 1);
+    }
+    // Same bytes once the drawing has been through one save (the first adds header defaults).
+    assert_eq!(d2, d1, "second reopen-and-save changed the file");
+    assert_eq!(d3, d2, "third reopen-and-save changed the file");
+    // The drawing read back has the seed it was saved with, and the same table.
+    let back = cadcraft_io::read_dxf(d3.as_bytes()).unwrap();
+    assert_eq!(back.handseed, d.handseed);
+    let Some(EntityKind::Table(t)) = back.entity(h).map(|e| &e.kind) else { panic!("table lost") };
+    assert_eq!(*t, table_2x2());
+}
+
+/// The same for the standard arrowhead block a dimension style names (`_DOT`): written for
+/// other readers, dropped on read, rebuilt on save.
+#[test]
+fn a_standard_arrow_block_keeps_the_seed_over_three_cycles() {
+    let mut d = Drawing::new_metric();
+    if let Some(s) = d.dim_styles.iter_mut().find(|s| s.name.eq_ignore_ascii_case("Standard")) {
+        s.arrow_block = "_DOT".into();
+    } else {
+        d.dim_styles.push(DimStyle { name: "Standard".into(), arrow_block: "_DOT".into(), ..DimStyle::default() });
+    }
+    d.add(&Space::Model, Common::default(), EntityKind::Dimension(linear([0.0, 0.0], [10.0, 0.0], [5.0, 3.0]))).unwrap();
+    let d0 = cadcraft_io::write_dxf(&d);
+    assert!(blocks_and_refs(&d0).0.iter().any(|b| b.eq_ignore_ascii_case("_DOT")), "no arrow block written");
+    let d1 = resave(&d0);
+    let d2 = resave(&d1);
+    let d3 = resave(&d2);
+    assert_eq!(header_var(&d2, "$HANDSEED"), header_var(&d1, "$HANDSEED"));
+    assert_eq!(record_handle(&d2, "LAYER", "0"), record_handle(&d1, "LAYER", "0"));
+    assert_eq!(d2, d1, "second reopen-and-save changed the file");
+    assert_eq!(d3, d2, "third reopen-and-save changed the file");
+}
+
+#[test]
+fn dwg_reopen_and_save_with_a_table_keeps_the_file() {
+    let mut d = Drawing::new_metric();
+    let h = d.add(&Space::Model, Common::default(), EntityKind::Table(table_2x2())).unwrap();
+    let mut bytes = cadcraft_io::write(&d, "a.dwg").unwrap();
+    let mut saves = Vec::new();
+    for _ in 0..3 {
+        let back = cadcraft_io::read(&bytes, "a.dwg").unwrap();
+        assert_eq!(back.handseed, d.handseed);
+        let Some(EntityKind::Table(t)) = back.entity(h).map(|e| &e.kind) else { panic!("table lost") };
+        assert_eq!(*t, table_2x2());
+        bytes = cadcraft_io::write(&back, "a.dwg").unwrap();
+        saves.push(bytes.clone());
+    }
+    assert!(saves.windows(2).all(|w| w[0] == w[1]), "DWG reopen-and-save with a table changed the file");
 }

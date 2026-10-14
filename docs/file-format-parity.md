@@ -1,6 +1,6 @@
 # File-format parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and written) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (a drawing with a table keeps its handles and $HANDSEED from one save to the next) · **Target:** Autodesk AutoCAD 2027
 
 Every format AutoCAD 2027 reads or writes, with CADCraft's support, fidelity and tests. Work
 items are in [gaps.md](gaps.md#file-formats); the weighted score feeds
@@ -94,7 +94,7 @@ early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% wr
 | Objects: VISUALSTYLE, PLOTSETTINGS, materials, field objects and other unmodelled objects | kept raw (#528) | written back as read | not editable |
 | Foreign xdata, extension dictionaries, reactors, unmodelled objects, colour books | kept raw (#528); an entity's xdata is part of the entity, so COPY, MIRROR, ARRAY and paste keep it on the copies (EXPLODE pieces don't) | written back, handles remapped, references to deleted objects dropped | through DWG: xdata on table records and blocks, entity colour books and reactors, custom-class objects lost (acadrust) |
 | Objects: dynamic block data (ACAD_EVALUATION_GRAPH, BLOCK…PARAMETER, BLOCK…ACTION, grips) | read into a model (`dynblock`, `blocks.dynamic`): parameters, visibility states, value sets, stretch and lookup actions; references: their dynamic block, values and custom properties (`blocks.reference`, Properties ▸ Custom, read-only); kept raw (#528) | written back as read; a changed visibility state is written as AutoCAD writes it (a new anonymous block with its `AcDbBlockRepBTag`, the objects' `AcDbBlockRepETag`, the reference's representation data) | visibility states (and lookups that set only them) can be changed (`blocks.reference.set`, Properties ▸ Custom); distances, positions and the actions they drive not yet; DWG open and save keep it too (checked with an AutoCAD dynamic block) |
-| Handles and owners | entity handles kept; others regenerated | consistent | stable across CADCraft re-saves (#495); other programs' table and object handles renumbered once |
+| Handles and owners | entity handles kept; others regenerated | consistent | stable across CADCraft re-saves (#495), with a table or a standard arrowhead block in the drawing too (#1177); other programs' table and object handles renumbered once |
 
 **DXF ≈ 50% read, ≈ 30% write** (estimated; weights: common 2D entities 50%, annotation objects
 20%, tables/objects 15%, foreign data preservation 15%).
@@ -135,6 +135,7 @@ our output in AutoCAD black-box.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | DXF/DWG reopen-and-save: a drawing with a table (or a standard arrowhead block nothing inserts) keeps its handles and `$HANDSEED`; the entities of blocks dropped on read no longer raise the drawing's own seed (#1177) |
 | 2026-10-12 | minor | PDF output: object transparency plotted as PDF alpha (`/ExtGState` `/ca` `/CA`) when the page setup's or the plot's "Plot transparency" is on; PNG plots blend it, SVG uses `opacity`; plots without it are unchanged byte for byte |
 | 2026-10-12 | minor | DXF/DWG save: the Model layout's plot settings are written as CADCraft plots model space, drawing extents scaled to fit (PLOTSETTINGS 74 = 1, 75 = 0), instead of plot type 5 "Layout information", which other programs' Plot dialogs can't use for model space |
 | 2026-10-12 | minor | VIEWPORT frozen layers also written and read as AutoCAD's group 341 layer handles, so third-party viewers honour per-viewport freezing in DXF (DWG converter gap noted) |
