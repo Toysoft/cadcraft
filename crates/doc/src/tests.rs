@@ -564,3 +564,47 @@ fn space_names_its_tab() {
     assert_eq!(p.layout(), Some("Sheet A"));
     assert_eq!(p.tab_name(), "Sheet A");
 }
+
+fn dim_with_block(block: &str) -> EntityKind {
+    EntityKind::Dimension(Dimension {
+        kind: DimKind::Linear { rotation: 0.0 },
+        defpt: Vec3::new(1.0, 1.0, 0.0),
+        text_mid: Vec3::new(0.5, 1.0, 0.0),
+        p13: Vec3::ZERO,
+        p14: Vec3::new(1.0, 0.0, 0.0),
+        p15: Vec3::ZERO,
+        p16: Vec3::ZERO,
+        text: String::new(),
+        style: "Standard".into(),
+        measurement: 1.0,
+        text_rotation: 0.0,
+        user_text_pos: false,
+        block: Some(block.into()),
+        overrides: Default::default(),
+        assoc: vec![],
+        marks: Default::default(),
+    })
+}
+
+#[test]
+fn nested_dimension_blocks_do_not_expand_exponentially() {
+    // Blocks *D0..*D14 each hold six dimensions that point at the next block, *D15 holds a line:
+    // visiting every reference would take 6^15 steps, so this test only finishes when the
+    // contents of each block are measured once per depth (#924).
+    let mut d = Drawing::new_imperial();
+    let mut h = 1;
+    for k in 0..15 {
+        let mut blk = Block::new(&format!("*D{k}"));
+        for _ in 0..6 {
+            blk.entities.push(Entity::new(Handle(h), dim_with_block(&format!("*D{}", k + 1))));
+            h += 1;
+        }
+        d.blocks.insert(format!("*D{k}"), std::sync::Arc::new(blk));
+    }
+    let mut last = Block::new("*D15");
+    last.entities.push(Entity::new(Handle(h), line((0.0, 0.0), (7.0, 0.0))));
+    d.blocks.insert("*D15".into(), std::sync::Arc::new(last));
+    d.add(&Space::Model, Common::default(), dim_with_block("*D0")).unwrap();
+    let ext = d.extents(&Space::Model);
+    assert!(ext.max.x >= 7.0, "{ext:?}");
+}

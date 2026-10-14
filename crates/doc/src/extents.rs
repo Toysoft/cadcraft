@@ -87,6 +87,20 @@ pub fn entity_bounds(d: &Drawing, e: &Entity, depth: usize) -> Bounds2 {
     bounds_in(d, e, depth, &mut HashMap::new())
 }
 
+/// Bounds of the visible contents of `blk` (in block coordinates) for a reference at `depth`,
+/// computed once per block name and depth. INSERT and DIMENSION references share the cache (#924).
+fn block_content_bounds<'a>(d: &'a Drawing, blk: &'a crate::Block, depth: usize, blocks: &mut HashMap<(&'a str, usize), Bounds2>) -> Bounds2 {
+    if let Some(b) = blocks.get(&(blk.name.as_str(), depth)) {
+        return *b;
+    }
+    let mut inner = Bounds2::EMPTY;
+    for be in blk.entities.iter().filter(|be| in_block_visible(d, be)) {
+        inner = inner.union(&bounds_in(d, be, depth + 1, blocks));
+    }
+    blocks.insert((blk.name.as_str(), depth), inner);
+    inner
+}
+
 /// [`entity_bounds`] with the bounds of block contents (in block coordinates) already computed,
 /// by block name and depth: every further reference to a block at that depth reuses them instead of
 /// expanding the block again, so nested or self-referencing blocks cost at most one pass over each
@@ -111,17 +125,7 @@ fn bounds_in<'a>(d: &'a Drawing, e: &Entity, depth: usize, blocks: &mut HashMap<
             let mut b = Bounds2::EMPTY;
             if let Some(blk) = d.block(&ins.block) {
                 let m = ins.transform(blk.base.xy());
-                let inner = match blocks.get(&(blk.name.as_str(), depth)) {
-                    Some(b) => *b,
-                    None => {
-                        let mut inner = Bounds2::EMPTY;
-                        for be in blk.entities.iter().filter(|be| in_block_visible(d, be)) {
-                            inner = inner.union(&bounds_in(d, be, depth + 1, blocks));
-                        }
-                        blocks.insert((blk.name.as_str(), depth), inner);
-                        inner
-                    }
-                };
+                let inner = block_content_bounds(d, blk, depth, blocks);
                 b = if inner.is_empty() { Bounds2::EMPTY } else { Bounds2::from_points(inner.corners().map(|c| m.apply(c))) };
                 if ins.cols > 1 || ins.rows > 1 {
                     let off =
@@ -165,9 +169,7 @@ fn bounds_in<'a>(d: &'a Drawing, e: &Entity, depth: usize, blocks: &mut HashMap<
             if let Some(blk) = dm.block.as_ref().and_then(|n| d.block(n))
                 && depth < MAX_BLOCK_DEPTH
             {
-                for be in blk.entities.iter().filter(|be| in_block_visible(d, be)) {
-                    b = b.union(&bounds_in(d, be, depth + 1, blocks));
-                }
+                b = b.union(&block_content_bounds(d, blk, depth, blocks));
             }
             b
         }
