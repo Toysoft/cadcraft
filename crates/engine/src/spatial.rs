@@ -15,7 +15,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use cadcraft_doc::{Block, DimStyle, Drawing, Entity, EntityKind, EntityStore, Space, entity_bounds};
+use cadcraft_doc::{Block, DimStyle, Drawing, Entity, EntityKind, EntityStore, Space, TextStyle};
 use cadcraft_geom::Bounds2;
 use rstar::primitives::{GeomWithData, Rectangle};
 use rstar::{AABB, RTree};
@@ -51,7 +51,7 @@ impl ChunkIx {
                 if matches!(e.kind, EntityKind::XLine(_) | EntityKind::Ray(_)) {
                     infinite.push(u32::try_from(i).unwrap_or(u32::MAX));
                 }
-                entity_bounds(d, e, 0)
+                crate::select::selection_bounds(d, e)
             })
             .collect();
         let serial = NEXT_SERIAL.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -70,6 +70,7 @@ pub struct SpatialIndex {
     store: EntityStore,
     blocks: BTreeMap<String, Arc<Block>>,
     dim_styles: Vec<DimStyle>,
+    text_styles: Vec<TextStyle>,
     dimscale: f64,
     /// Annotation scale factor and ANNOALLVISIBLE: annotative objects measure at that scale.
     anno: (u64, bool),
@@ -150,6 +151,7 @@ impl SpatialIndex {
             store: store.clone(),
             blocks: d.blocks.clone(),
             dim_styles: d.dim_styles.clone(),
+            text_styles: d.text_styles.clone(),
             dimscale: d.header.f64("DIMSCALE", 1.0),
             anno: anno_key(d),
             hidden_layers: hidden_layers(d).map(str::to_owned).collect(),
@@ -166,6 +168,7 @@ impl SpatialIndex {
             && self.blocks.iter().zip(&d.blocks).all(|((ka, a), (kb, b))| ka == kb && Arc::ptr_eq(a, b))
             && self.dimscale.to_bits() == d.header.f64("DIMSCALE", 1.0).to_bits()
             && self.dim_styles == d.dim_styles
+            && self.text_styles == d.text_styles
             && self.anno == anno_key(d)
             && self.hidden_layers.iter().map(String::as_str).eq(hidden_layers(d))
     }
@@ -190,7 +193,7 @@ impl SpatialIndex {
         let (c, l) = self.locate(i)?;
         c.ents.get(l)
     }
-    /// The bounds of the entity at draw index `i` (as [`entity_bounds`] computes them).
+    /// The bounds of the entity at draw index `i` (as [`crate::select::selection_bounds`] computes them).
     pub fn bounds(&self, i: u32) -> Bounds2 {
         self.locate(i).and_then(|(c, l)| c.bounds.get(l).copied()).unwrap_or(Bounds2::EMPTY)
     }
