@@ -17,6 +17,8 @@ pub enum Preference {
     English,
     #[serde(rename = "uk")]
     Ukrainian,
+    #[serde(rename = "pl")]
+    Polish,
     #[serde(rename = "pt-BR")]
     BrazilianPortuguese,
     #[serde(rename = "de")]
@@ -42,10 +44,11 @@ pub enum Preference {
 }
 
 impl Preference {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Auto,
         Self::English,
         Self::Ukrainian,
+        Self::Polish,
         Self::BrazilianPortuguese,
         Self::German,
         Self::Spanish,
@@ -73,6 +76,7 @@ impl Preference {
             Self::Auto => "auto",
             Self::English => "en",
             Self::Ukrainian => "uk",
+            Self::Polish => "pl",
             Self::BrazilianPortuguese => "pt-BR",
             Self::German => "de",
             Self::Spanish => "es",
@@ -92,6 +96,7 @@ impl Preference {
             Self::Auto => t("Auto (system language)"),
             Self::English => "English",
             Self::Ukrainian => "Українська",
+            Self::Polish => "Polski",
             Self::BrazilianPortuguese => "Português (Brasil)",
             Self::German => "Deutsch",
             Self::Spanish => "Español",
@@ -125,6 +130,7 @@ impl Preference {
         match self {
             Self::English => "en",
             Self::Ukrainian => "uk",
+            Self::Polish => "pl",
             Self::BrazilianPortuguese => "pt-BR",
             Self::German => "de",
             Self::Spanish => "es",
@@ -152,7 +158,8 @@ pub struct Language {
     catalog: OnceLock<Catalog<'static>>,
 }
 
-pub static LANGUAGES: [Language; 13] = [
+pub static LANGUAGES: [Language; 14] = [
+    Language { code: "pl", name: "Polski", source: include_str!("pl.tsv"), plural: plural_pl, plural_forms: 3, catalog: OnceLock::new() },
     Language { code: "en", name: "English", source: "", plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
     Language {
         code: "uk", name: "Українська", source: include_str!("uk.tsv"), plural: plural_uk, plural_forms: 3, catalog: OnceLock::new()
@@ -284,6 +291,17 @@ pub fn format(source: &str, values: &[(&str, String)]) -> String {
 }
 
 /// Ukrainian integer plurals: one (1, 21), few (2–4, 22–24), many (0, 5–20, 25…).
+/// Polish plurals: one (1), few (2–4, 22–24), many (0, 5–21, 25–31).
+pub fn plural_pl(n: u64) -> usize {
+    if n == 1 {
+        0
+    } else if (2..=4).contains(&(n % 10)) && !(12..=14).contains(&(n % 100)) {
+        1
+    } else {
+        2
+    }
+}
+
 pub fn plural_uk(n: u64) -> usize {
     match (n % 10, n % 100) {
         (1, 11) | (2..=4, 12..=14) => 2,

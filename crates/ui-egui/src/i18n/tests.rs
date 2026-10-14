@@ -39,7 +39,7 @@ fn catalog_is_valid_and_preserves_placeholders_and_ellipses() {
 /// to English for what they don't cover yet; their gaps are reported, not enforced, so adding a
 /// command doesn't require a row in every language.
 const REQUIRED: &[&str] = &["uk"];
-const REPORTED: &[&str] = &["pt-BR", "de", "es", "cs", "ru", "fr", "zh", "it", "ko", "sv", "ar"];
+const REPORTED: &[&str] = &["pl", "pt-BR", "de", "es", "cs", "ru", "fr", "zh", "it", "ko", "sv", "ar"];
 
 fn check(language: &str, what: &str, missing: Vec<String>) {
     if REQUIRED.contains(&language) {
@@ -154,14 +154,15 @@ fn locale_and_saved_preference_resolution() {
     for (tag, code) in [("ru", "ru"), ("ru-RU", "ru"), ("ru_RU.UTF-8", "ru"), ("fr", "fr"), ("fr-FR", "fr"), ("fr_CA.UTF-8", "fr")] {
         assert_eq!(locale_language(tag), Some(code), "{tag}");
     }
-    for tag in ["ua", "ukulele", "pl-PL", "", "garbage", "💙"] {
+    for tag in ["ua", "ukulele", "xx-XX", "", "garbage", "💙"] {
         assert_eq!(locale_language(tag), None, "{tag}");
     }
     for tag in ["pt", "pt-BR", "pt_BR.UTF-8", "PT-br", "pt-PT"] {
         assert_eq!(locale_language(tag), Some("pt-BR"), "{tag}");
     }
     assert_eq!(locale_language("ptolemy"), None);
-    assert_eq!(Preference::Auto.resolve(&["pl-PL".into(), "pt-BR".into()]), "pt-BR");
+    assert_eq!(locale_language("pl-PL"), Some("pl"));
+    assert_eq!(Preference::Auto.resolve(&["pl-PL".into(), "pt-BR".into()]), "pl");
     assert_eq!(Preference::Auto.resolve(&["fr-FR".into(), "pt-BR".into()]), "fr");
     for tag in ["es", "es-ES", "es_MX.UTF-8", "ES-ar"] {
         assert_eq!(locale_language(tag), Some("es"), "{tag}");
@@ -171,7 +172,7 @@ fn locale_and_saved_preference_resolution() {
     assert_eq!(Preference::BrazilianPortuguese.resolve(&["uk-UA".into()]), "pt-BR");
     assert_eq!(Preference::parse("pt-BR"), Some(Preference::BrazilianPortuguese));
     let locales = vec!["pl-PL".into(), "uk-UA".into(), "en-US".into()];
-    assert_eq!(Preference::Auto.resolve(&locales), "uk");
+    assert_eq!(Preference::Auto.resolve(&locales), "pl");
     assert_eq!(Preference::English.resolve(&locales), "en");
     assert_eq!(Preference::German.resolve(&locales), "de");
     assert_eq!(Preference::Auto.resolve(&["de-DE".into(), "en-US".into()]), "de");
@@ -427,7 +428,7 @@ fn czech_locales_preferences_and_plural_forms() {
     assert_eq!(Preference::parse("cs"), Some(Preference::Czech));
     assert_eq!(Preference::Czech.name(), "Čeština");
     assert_eq!(Preference::Czech.resolve(&["en-US".into()]), "cs");
-    assert_eq!(Preference::Auto.resolve(&["pl-PL".into(), "cs-CZ".into(), "en-US".into()]), "cs");
+    assert_eq!(Preference::Auto.resolve(&["xx-XX".into(), "cs-CZ".into(), "en-US".into()]), "cs");
     let mut app = CadApp::new(Session::new(), Services::default());
     app.ui.interface_language = Preference::Czech;
     let mut restored = CadApp::new(Session::new(), Services::default());
@@ -639,7 +640,7 @@ fn korean_locale_saved_preference_and_single_count_form() {
     }
     assert_eq!(Preference::parse("ko"), Some(Preference::Korean));
     assert_eq!(Preference::Korean.resolve(&["en-US".into()]), "ko");
-    assert_eq!(Preference::Auto.resolve(&["pl-PL".into(), "ko-KR".into(), "en-US".into()]), "ko");
+    assert_eq!(Preference::Auto.resolve(&["xx-XX".into(), "ko-KR".into(), "en-US".into()]), "ko");
     let mut app = CadApp::new(Session::new(), Services::default());
     app.system_languages = vec!["ko-KR".into()];
     app.run("ui.language", json!({"lang": "ko"})).unwrap();
@@ -792,7 +793,7 @@ fn swedish_locales_preferences_and_plural_forms() {
     assert_eq!(Preference::parse("sv"), Some(Preference::Swedish));
     assert_eq!(Preference::Swedish.name(), "Svenska");
     assert_eq!(Preference::Swedish.resolve(&["en-US".into()]), "sv");
-    assert_eq!(Preference::Auto.resolve(&["pl-PL".into(), "sv-SE".into(), "en-US".into()]), "sv");
+    assert_eq!(Preference::Auto.resolve(&["xx-XX".into(), "sv-SE".into(), "en-US".into()]), "sv");
     let mut app = CadApp::new(Session::new(), Services::default());
     app.ui.interface_language = Preference::Swedish;
     let mut restored = CadApp::new(Session::new(), Services::default());
@@ -883,4 +884,12 @@ fn default_fonts_cover_swedish_letters_and_quotes() {
             }
         }
     });
+}
+
+#[test]
+fn polish_plural_forms() {
+    for (n, expected) in [(0, 2), (1, 0), (2, 1), (4, 1), (5, 2), (12, 2), (14, 2), (21, 2), (22, 1), (24, 1), (25, 2), (101, 2), (102, 1), (112, 2)]
+    {
+        assert_eq!(plural_pl(n), expected, "n={n}");
+    }
 }
