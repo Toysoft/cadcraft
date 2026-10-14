@@ -485,7 +485,7 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
             center: t.p(10),
             width: t.fd(40, 1.0),
             height: t.fd(41, 1.0),
-            view_center: Vec2::new(t.fd(12, 0.0), t.fd(22, 0.0)),
+            view_center: viewport_view_center(&t),
             view_height: t.fd(45, 1.0),
             id: t.i(69).unwrap_or(0) as u32,
             locked: t.i(90).unwrap_or(0) & 16384 != 0,
@@ -521,6 +521,19 @@ fn entity(kind: &str, tags: &[Tag]) -> Option<(Common, EntityKind)> {
         }),
     };
     Some((c, k))
+}
+
+/// A VIEWPORT's model-space view centre. The DXF Reference gives the view centre (12/22) in
+/// display coordinates, whose origin is the view target (17/27/37), so a viewport whose view
+/// sits in its target (as DWG files commonly store it, with 12/22 at 0,0) shows the model
+/// point target + centre. Exact for plan views without twist; twisted or non-plan views are
+/// approximated the same way because the 2D display applies neither. A non-finite sum falls back
+/// to the centre alone.
+fn viewport_view_center(t: &T) -> Vec2 {
+    let center = Vec2::new(t.fd(12, 0.0), t.fd(22, 0.0));
+    let target = Vec2::new(t.fd(17, 0.0), t.fd(27, 0.0));
+    let sum = center + target;
+    if sum.is_finite() { sum } else { center }
 }
 
 /// An ACAD_TABLE entity: sizes, cell texts and merges (DXF Reference), plus CADCraft's
