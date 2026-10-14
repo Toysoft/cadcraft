@@ -455,7 +455,8 @@ impl Interactive for TableEditM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match (&self.cell, i) {
             (_, Input::Cancel) => Ok(Step::Cancel),
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 match cell_under(s, p) {
                     Some(c) => self.cell = Some(c),
                     None => s.echo("No table cell there."),
@@ -595,7 +596,8 @@ impl Interactive for ExportM {
                 self.pick(s, &hs);
                 Ok(Step::Continue)
             }
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 match cell_under(s, p) {
                     Some((h, ..)) => self.table = Some(h),
                     None => s.echo("No table there."),

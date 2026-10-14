@@ -7,6 +7,7 @@ mod viewport;
 
 pub use viewport::ViewportPoint;
 
+use crate::PointInput;
 use cadcraft_doc::{Drawing, EntityKind, Insert, MAX_BLOCK_DEPTH, Prim, Space};
 use cadcraft_geom::{Bounds2, Circle, EPS, Ellipse, Mat3, PI, Segment, Vec2, intersect_ext};
 use serde::Serialize;
@@ -69,7 +70,7 @@ impl SnapHit {
     pub fn input(&self) -> crate::Input {
         match self.deferred {
             Some(d) => crate::Input::Deferred(d),
-            None => crate::Input::Point(self.point),
+            None => crate::Input::Point(PointInput::Picked(self.point)),
         }
     }
 }

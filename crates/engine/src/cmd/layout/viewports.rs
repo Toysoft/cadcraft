@@ -412,7 +412,8 @@ impl PolygonInput {
     }
     pub fn input(&mut self, i: Input) -> Result<PolyStep> {
         match i {
-            Input::Point(q) => {
+            Input::Point(pi) => {
+                let q = pi.point();
                 if self.vs.last().is_some_and(|l| l.p.near(q, 1e-12)) {
                     return Ok(PolyStep::More);
                 }
@@ -507,7 +508,10 @@ fn handles_json(hs: &[Handle]) -> Value {
 fn pick_viewports(s: &mut Session, i: &Input, picked: &mut Vec<Handle>) {
     let found: Vec<Handle> = match i {
         Input::Pick(hs) => s.doc().map(|d| viewports_in(d, &s.space(), hs)).unwrap_or_default(),
-        Input::Point(p) => any_viewport_at(s, *p).into_iter().collect(),
+        Input::Point(pi) => {
+            let p = pi.point();
+            any_viewport_at(s, p).into_iter().collect()
+        }
         _ => Vec::new(),
     };
     let before = picked.len();
@@ -652,7 +656,8 @@ impl Interactive for MviewM {
             Stage::Corner => match i {
                 Input::Enter => self.create(s, None),
                 Input::Keyword(k) | Input::Text(k) => self.corner_keyword(s, &k.trim().to_ascii_lowercase()),
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     self.stage = Stage::Opposite(p);
                     Ok(Step::Continue)
                 }
@@ -675,7 +680,10 @@ impl Interactive for MviewM {
                 Ok(Step::Continue)
             }
             Stage::Opposite(a) => match i {
-                Input::Point(b) => self.create(s, Some(Bounds2::new(a, b))),
+                Input::Point(pi) => {
+                    let b = pi.point();
+                    self.create(s, Some(Bounds2::new(a, b)))
+                }
                 _ => {
                     self.stage = Stage::Opposite(a);
                     Ok(Step::Continue)
@@ -697,7 +705,8 @@ impl Interactive for MviewM {
                 }
             },
             Stage::Object => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let Some(h) = curves::pick_at(s, p) else {
                         self.stage = Stage::Object;
                         s.echo("No object found.");
@@ -762,7 +771,8 @@ impl Interactive for MviewM {
             Stage::RestoreCorner(name) => match i {
                 Input::Enter => Self::restore(s, &name, None),
                 Input::Keyword(k) | Input::Text(k) if matches!(k.trim().to_ascii_lowercase().as_str(), "fit" | "f") => Self::restore(s, &name, None),
-                Input::Point(a) => {
+                Input::Point(pi) => {
+                    let a = pi.point();
                     self.stage = Stage::RestoreOpposite(name, a);
                     Ok(Step::Continue)
                 }
@@ -776,7 +786,10 @@ impl Interactive for MviewM {
                 }
             },
             Stage::RestoreOpposite(name, a) => match i {
-                Input::Point(b) => Self::restore(s, &name, Some(Bounds2::new(a, b))),
+                Input::Point(pi) => {
+                    let b = pi.point();
+                    Self::restore(s, &name, Some(Bounds2::new(a, b)))
+                }
                 _ => {
                     self.stage = Stage::RestoreOpposite(name, a);
                     Ok(Step::Continue)
@@ -870,7 +883,10 @@ impl Interactive for VpclipM {
         match std::mem::take(&mut self.stage) {
             ClipStage::Viewport => {
                 let h = match &i {
-                    Input::Point(p) => viewport_at(s, *p),
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        viewport_at(s, p)
+                    }
                     Input::Pick(hs) => s.doc().ok().and_then(|d| viewports_in(d, &s.layout_space(), hs).first().copied()),
                     _ => None,
                 };
@@ -889,8 +905,9 @@ impl Interactive for VpclipM {
             }
             ClipStage::Clip(vh) => {
                 let object = match &i {
-                    Input::Point(p) => {
-                        let Some(o) = curves::pick_at(s, *p) else {
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        let Some(o) = curves::pick_at(s, p) else {
                             self.stage = ClipStage::Clip(vh);
                             s.echo("No object found.");
                             return Ok(Step::Continue);

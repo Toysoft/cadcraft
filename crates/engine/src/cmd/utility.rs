@@ -153,7 +153,8 @@ impl Interactive for PickM {
                 self.mode = calc::Pick::parse(&k);
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let mode = *self.mode.get_or_insert(calc::Pick::Point);
                 self.pts.push(p);
                 if self.pts.len() >= mode.points() { self.finish(s, mode) } else { Ok(Step::Continue) }

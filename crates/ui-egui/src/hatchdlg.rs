@@ -597,7 +597,7 @@ mod tests {
         assert!(app.session.prompt_text().contains("Pick internal point"));
         resume(&mut app);
         assert_eq!(app.ui.dialog, None, "still picking");
-        app.session.input(cadcraft_engine::Input::Point(Vec2::new(5.0, 5.0))).unwrap();
+        app.session.input(cadcraft_engine::Input::Point(PointInput::Picked(Vec2::new(5.0, 5.0)))).unwrap();
         app.session.input(cadcraft_engine::Input::Enter).unwrap();
         resume(&mut app);
         assert_eq!(app.ui.dialog.as_deref(), Some("hatch"));
@@ -614,7 +614,7 @@ mod tests {
         }
         let before = app.hatch_dlg.clone();
         start_pick(&mut app, PickMode::Points);
-        app.session.input(cadcraft_engine::Input::Point(Vec2::new(5.0, 5.0))).unwrap();
+        app.session.input(cadcraft_engine::Input::Point(PointInput::Picked(Vec2::new(5.0, 5.0)))).unwrap();
         app.session.cancel();
         resume(&mut app);
         assert_eq!(app.ui.dialog.as_deref(), Some("hatch"));
@@ -626,7 +626,7 @@ mod tests {
         let (mut app, _) = app_with_rect();
         open_create(&mut app, false);
         start_pick(&mut app, PickMode::Points);
-        app.session.input(cadcraft_engine::Input::Point(Vec2::new(5.0, 5.0))).unwrap();
+        app.session.input(cadcraft_engine::Input::Point(PointInput::Picked(Vec2::new(5.0, 5.0)))).unwrap();
         app.session.input(cadcraft_engine::Input::Enter).unwrap();
         app.session.new_drawing(false);
         resume(&mut app);

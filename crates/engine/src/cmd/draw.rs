@@ -9,7 +9,7 @@ use super::helpers::*;
 use super::machines::number;
 use super::pline_opts::{Outcome, PlineAsk};
 use super::*;
-use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step, snap};
+use crate::{Accept, Input, Interactive, PointInput, Prompt, Result, Session, Step, snap};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
@@ -428,20 +428,21 @@ impl Interactive for LineM {
             && let Some(first) = self.first
         {
             match i {
-                Input::Point(p) => {
+                Input::Point(pi @ PointInput::RelativePolar { dist, angle, .. }) => {
                     // A deferred TAN first point with a typed `@d<a` next point: resolve
                     // exactly from the direction and distance the user gave.
-                    if let Some((dist, ang)) = s.last_polar.take()
-                        && let Some(t) = snap::tangent_point_in_direction(&first.curve, ang, first.at)
-                    {
-                        let e = t + Vec2::new(ang.cos(), ang.sin()) * dist;
+                    if let Some(t) = snap::tangent_point_in_direction(&first.curve, angle, first.at) {
+                        let e = t + Vec2::new(angle.cos(), angle.sin()) * dist;
                         self.handles.push(s.add_entity(line(t, e))?);
                         self.pts = vec![t, e];
                         s.last_point = e;
                         self.first = None;
                         return Ok(Step::Continue);
                     }
-                    return self.resolve_first(s, first, snap::LineEnd::Point(p));
+                    return self.resolve_first(s, first, snap::LineEnd::Point(pi.point()));
+                }
+                Input::Point(pi) => {
+                    return self.resolve_first(s, first, snap::LineEnd::Point(pi.point()));
                 }
                 Input::Deferred(d) => return self.resolve_first(s, first, snap::LineEnd::Deferred(d)),
                 _ => {}
@@ -455,12 +456,13 @@ impl Interactive for LineM {
             // A deferred pick with a known last point (not offered by the prompt, but harmless).
             Input::Deferred(d) => match self.pts.last().copied() {
                 Some(last) => match snap::resolve_deferred(snap::LineEnd::Point(last), snap::LineEnd::Deferred(d)) {
-                    Some((_, p)) => self.input(s, Input::Point(p)),
+                    Some((_, p)) => self.input(s, Input::Point(PointInput::Picked(p))),
                     None => Err(crate::EngineError::Other("No tangent or perpendicular from the last point.".into())),
                 },
                 None => Ok(Step::Continue),
             },
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if let Some(last) = self.pts.last().copied() {
                     if last.near(p, 1e-12) {
                         return Ok(Step::Continue);
@@ -653,7 +655,8 @@ impl Interactive for PlineM {
             return Ok(Step::Continue);
         }
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if self.verts.is_empty() {
                     s.echo(format!("Current line-width is {:.4}", self.start_w));
                 }
@@ -793,7 +796,8 @@ impl Interactive for CircleM {
                 };
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if self.mode == 0 && self.pts.first().is_some_and(|c| c.near(p, 1e-12)) {
                     return Err(crate::EngineError::Other("Value must be positive and nonzero.".into()));
                 }
@@ -911,7 +915,8 @@ impl Interactive for PolygonM {
         }
         let n = self.sides.unwrap_or(4);
         if self.edge {
-            if let Input::Point(p) = i {
+            if let Input::Point(pi) = i {
+                let p = pi.point();
                 if self.edge_pts.first().is_some_and(|a| a.near(p, 1e-12)) {
                     return Err(crate::EngineError::Other("Edge endpoints must differ.".into()));
                 }
@@ -925,7 +930,7 @@ impl Interactive for PolygonM {
         }
         match (self.center, self.inscribed, i) {
             (None, _, Input::Keyword(k)) if k == "Edge" => self.edge = true,
-            (None, _, Input::Point(p)) => self.center = Some(p),
+            (None, _, Input::Point(pi)) => self.center = Some(pi.point()),
             (Some(_), None, inp @ (Input::Keyword(_) | Input::Enter | Input::Text(_))) => {
                 // Enter takes the option used last time (the prompt's default).
                 let ins = match inp {
@@ -936,7 +941,8 @@ impl Interactive for PolygonM {
                 self.inscribed = Some(ins);
                 s.last_used.polygon_circumscribed = !ins;
             }
-            (Some(c), Some(ins), Input::Point(p)) => {
+            (Some(c), Some(ins), Input::Point(pi)) => {
+                let p = pi.point();
                 if c.near(p, 1e-12) {
                     return Err(crate::EngineError::Other("Value must be positive and nonzero.".into()));
                 }
@@ -1072,8 +1078,11 @@ impl Interactive for EllipseM {
                     return Ok(Step::Continue);
                 }
                 // A parameter is the angle from the major axis taken as the parameter itself.
-                Input::Point(p) if self.param => cadcraft_geom::norm_angle((p - e.center).angle() - e.major.angle()),
-                Input::Point(p) => ge.param_of(p),
+                Input::Point(pi) if self.param => cadcraft_geom::norm_angle((pi.point() - e.center).angle() - e.major.angle()),
+                Input::Point(pi) => {
+                    let p = pi.point();
+                    ge.param_of(p)
+                }
                 Input::Text(t) => {
                     let a = s.angle_settings().amount(&t).ok_or_else(|| crate::EngineError::Other("Requires an angle.".into()))?;
                     if self.param {
@@ -1113,13 +1122,15 @@ impl Interactive for EllipseM {
             Input::Keyword(k) if k == "Center" => self.center_mode = true,
             Input::Keyword(k) if k == "Arc" => self.arc_mode = true,
             Input::Keyword(k) if k == "Rotation" && self.pts.len() == 2 => self.rotation = true,
-            Input::Point(p) if self.pts.len() < 2 => self.pts.push(p),
-            Input::Point(p) if self.rotation => {
+            Input::Point(pi) if self.pts.len() < 2 => self.pts.push(pi.point()),
+            Input::Point(pi) if self.rotation => {
+                let p = pi.point();
                 if let Some(e) = self.axis().and_then(|(c, _)| self.rotated((p - c).angle())) {
                     return self.place(s, e);
                 }
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if let Some(e) = self.build(p) {
                     return self.place(s, e);
                 }
@@ -1186,7 +1197,8 @@ impl Interactive for PointM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 s.add_entity(EntityKind::Point(Point { p: v3(p), angle: 0.0 }))?;
                 Ok(if self.multiple { Step::Continue } else { Step::Done })
             }
@@ -1214,7 +1226,8 @@ impl Interactive for RayM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 match self.base {
                     None => self.base = Some(p),
                     Some(b) => {
@@ -1325,7 +1338,8 @@ impl Interactive for SplineM {
             return Ok(Step::Continue);
         }
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 self.pts.push(p);
                 Ok(Step::Continue)
             }
@@ -1412,7 +1426,8 @@ impl Interactive for DonutM {
                 self.outside = Some(number(&t).ok_or_else(|| crate::EngineError::Other("Requires a distance.".into()))?.abs())
             }
             (Some(_), None, Input::Enter) => self.outside = Some(hdr(s, "DONUTOD", 1.0)),
-            (Some(a), Some(b), Input::Point(p)) => {
+            (Some(a), Some(b), Input::Point(pi)) => {
+                let p = pi.point();
                 s.add_entity(donut(p, a, b))?;
                 let d = s.doc_mut()?;
                 d.header.set_f64("DONUTID", a);
@@ -1496,16 +1511,16 @@ impl Interactive for TextM {
         let th = s.doc()?.header.f64("TEXTSIZE", 0.2);
         match (self.at, self.height, self.rotation, i) {
             (None, _, _, Input::Keyword(k)) if k == "Justify" => self.asking_justify = true,
-            (None, _, _, Input::Point(p)) => self.at = Some(p),
+            (None, _, _, Input::Point(pi)) => self.at = Some(pi.point()),
             (Some(_), None, _, Input::Enter) => self.height = Some(th),
-            (Some(a), None, _, Input::Point(p)) => self.height = Some(a.dist(p).max(1e-9)),
+            (Some(a), None, _, Input::Point(pi)) => self.height = Some(a.dist(pi.point()).max(1e-9)),
             (Some(_), None, _, Input::Text(t)) => {
                 let h = number(&t).filter(|h| *h > 0.0).ok_or_else(|| crate::EngineError::Other("Requires a positive height.".into()))?;
                 self.height = Some(h);
                 s.doc_mut()?.header.set_f64("TEXTSIZE", h);
             }
             (Some(_), Some(_), None, Input::Enter) => self.rotation = Some(0.0),
-            (Some(a), Some(_), None, Input::Point(p)) => self.rotation = Some(a.angle_to(p)),
+            (Some(a), Some(_), None, Input::Point(pi)) => self.rotation = Some(a.angle_to(pi.point())),
             (Some(_), Some(_), None, Input::Text(t)) => {
                 self.rotation = Some(s.angle_settings().direction(&t).ok_or_else(|| crate::EngineError::Other("Requires an angle.".into()))?)
             }
@@ -1583,8 +1598,8 @@ impl Interactive for MTextM {
             return Ok(Step::Continue);
         }
         match (self.first, self.boxed(), i) {
-            (None, _, Input::Point(p)) => self.first = Some(p),
-            (Some(_), false, Input::Point(p)) => self.second = Some(p),
+            (None, _, Input::Point(pi)) => self.first = Some(pi.point()),
+            (Some(_), false, Input::Point(pi)) => self.second = Some(pi.point()),
             (Some(_), false, Input::Keyword(k)) => {
                 self.ask =
                     Some(super::mtext_opts::MTextAsk::from_keyword(&k).ok_or_else(|| crate::EngineError::Other("Invalid option keyword.".into()))?);

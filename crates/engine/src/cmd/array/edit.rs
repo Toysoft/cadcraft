@@ -569,10 +569,11 @@ impl EditM {
         let d = match i {
             Input::Enter => return Ok(Some(cur)),
             Input::Text(t) => number(t),
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let h = self.array.ok_or_else(|| other("No array selected."))?;
                 let (ins, blk, _) = array_of(s.doc()?, h)?;
-                ins.transform(blk.base.xy()).inverse().map(|inv| inv.apply(*p).len())
+                ins.transform(blk.base.xy()).inverse().map(|inv| inv.apply(p).len())
             }
             _ => return Ok(None),
         };
@@ -729,8 +730,9 @@ impl Interactive for EditM {
         let (c64, r64, l64) = (u64::from(cols), u64::from(rows), u64::from(levels));
         let next = match (stage, &i) {
             (Main, _) => return self.main(s, i),
-            (Base, Input::Point(p)) => {
-                rebase(s, h, *p)?;
+            (Base, Input::Point(pi)) => {
+                let p = pi.point();
+                rebase(s, h, p)?;
                 Main
             }
             (Base, Input::Enter) => {
@@ -863,15 +865,19 @@ impl Interactive for EditM {
             }
             (RepBase, Input::Point(_) | Input::Enter) => {
                 let base = match &i {
-                    Input::Point(p) => *p,
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        p
+                    }
                     _ => centroid(s.doc()?, &self.rep_objs),
                 };
                 self.rep_block = Some(block_from(s, h, &self.rep_objs.clone(), base)?);
                 RepItems
             }
-            (RepItems, Input::Point(at)) => {
+            (RepItems, Input::Point(pi)) => {
+                let at = pi.point();
                 let tol = s.pixel_size() * s.settings.pickbox;
-                let item = item_at(s.doc()?, h, *at, tol).ok_or_else(|| other("No array item there; select an item of the array."))?;
+                let item = item_at(s.doc()?, h, at, tol).ok_or_else(|| other("No array item there; select an item of the array."))?;
                 let name = self.rep_block.clone().ok_or_else(|| other("No replacement objects."))?;
                 self.change(s, |p| {
                     p.replaced.push(ReplacedItem { i: item.0, j: item.1, level: item.2, block: name });
@@ -888,9 +894,10 @@ impl Interactive for EditM {
                 Main
             }
             (RepItems, Input::Enter) => Main,
-            (SourceItem, Input::Point(at)) => {
+            (SourceItem, Input::Point(pi)) => {
+                let at = pi.point();
                 let tol = s.pixel_size() * s.settings.pickbox;
-                let item = item_at(s.doc()?, h, *at, tol).ok_or_else(|| other("No array item there; select an item of the array."))?;
+                let item = item_at(s.doc()?, h, at, tol).ok_or_else(|| other("No array item there; select an item of the array."))?;
                 open_source(s, h, item)?;
                 return Ok(Step::Done);
             }

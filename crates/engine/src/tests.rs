@@ -188,8 +188,8 @@ fn move_with_pickfirst_and_window_selection() {
     s.state_mut().unwrap().set_view(View { center: Vec2::new(3.0, 3.0), height: 10.0 });
     // Window selection from left to right picks only the first line.
     s.cmdline("move").unwrap();
-    s.input(Input::Point(Vec2::new(-1.0, -1.0))).unwrap();
-    s.input(Input::Point(Vec2::new(2.0, 1.0))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(-1.0, -1.0)))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(2.0, 1.0)))).unwrap();
     s.input(Input::Enter).unwrap();
     s.cmdline("0,0").unwrap();
     s.cmdline("10,0").unwrap();
@@ -695,7 +695,7 @@ fn every_interactive_command_starts_and_cancels() {
         s.start(c.id).unwrap();
         let _ = s.prompt_text();
         let _ = s.preview(Vec2::new(1.0, 1.0));
-        s.input(Input::Point(Vec2::new(1.0, 2.0))).unwrap();
+        s.input(Input::Point(PointInput::Picked(Vec2::new(1.0, 2.0)))).unwrap();
         let _ = s.preview(Vec2::new(3.0, 1.0));
         s.cancel();
         assert!(s.running.is_none(), "{} still running", c.id);
@@ -985,7 +985,7 @@ fn mleader_and_qdim() {
 fn snap_click(s: &mut Session, at: Vec2) {
     let prompt = s.current_prompt().unwrap();
     let hit = snap::osnap(s.doc().unwrap(), &cadcraft_doc::Space::Model, at, 0.5, s.settings.osmode, prompt.base, prompt.deferred);
-    s.input(hit.map_or(Input::Point(at), |h| h.input())).unwrap();
+    s.input(hit.map_or(Input::Point(PointInput::Picked(at)), |h| h.input())).unwrap();
 }
 
 fn line_ends(s: &Session) -> Vec<(Vec2, Vec2)> {
@@ -1230,7 +1230,7 @@ fn press_and_drag_selection_window() {
     s.set_selection(Vec::new());
     s.cmdline("erase").unwrap();
     assert!(s.begin_window(Vec2::new(-1.0, -1.0)));
-    s.input(Input::Point(Vec2::new(11.0, 1.0))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(11.0, 1.0)))).unwrap();
     s.input(Input::Enter).unwrap();
     assert_eq!(kinds(&s), vec!["Circle"]);
     // A drawing command never opens one, and neither does a hostile point.

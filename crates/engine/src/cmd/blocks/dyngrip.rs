@@ -105,7 +105,10 @@ impl Interactive for DynGripEdit {
 
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         let to = match i {
-            Input::Point(p) => p,
+            Input::Point(pi) => {
+                let p = pi.point();
+                p
+            }
             Input::Deferred(d) => d.at,
             Input::Text(t) if self.distance => {
                 let mut d = s.doc()?.clone();

@@ -3,7 +3,7 @@
 use cadcraft_doc::Handle;
 use serde_json::{Value, json};
 
-use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
+use crate::{Accept, EngineError, Input, Interactive, PointInput, Prompt, Result, Session, Step};
 
 /// A "Select objects:" phase. Uses the pickfirst selection when there is one.
 #[derive(Clone, Debug, Default)]
@@ -219,7 +219,7 @@ mod tests {
         // COPYBASE asks for the base point first, then for objects.
         s.start("copybase").unwrap();
         assert!(s.prompt_text().contains("Specify base point"), "{}", s.prompt_text());
-        s.input(Input::Point(Vec2::new(3.0, 4.0))).unwrap();
+        s.input(Input::Point(PointInput::Picked(Vec2::new(3.0, 4.0)))).unwrap();
         assert!(s.prompt_text().contains("Select objects"), "{}", s.prompt_text());
         s.input(Input::Pick(vec![hs[0]])).unwrap();
         s.input(Input::Enter).unwrap();

@@ -293,7 +293,7 @@ fn interactive_routine_waits_for_the_user() {
     s.cmdline("PT").unwrap();
     assert!(s.lisp_running());
     assert_eq!(s.prompt_text(), "Where: ");
-    s.input(crate::Input::Point(cadcraft_geom::Vec2::new(3.0, 4.0))).unwrap();
+    s.input(crate::Input::Point(PointInput::Picked(cadcraft_geom::Vec2::new(3.0, 4.0)))).unwrap();
     assert!(!s.lisp_running());
     assert!(s.doc().unwrap().model.iter().any(|e| matches!(&e.kind, cadcraft_doc::EntityKind::Circle(c) if c.center.x == 3.0 && c.center.y == 4.0)));
     // Typed answers and keywords.
@@ -310,7 +310,7 @@ fn interactive_routine_waits_for_the_user() {
     // `pause` lets the user answer one prompt of a command.
     s.cmdline("(command \"_.CIRCLE\" pause 2)").unwrap();
     assert!(s.lisp_running());
-    s.input(crate::Input::Point(cadcraft_geom::Vec2::new(50.0, 50.0))).unwrap();
+    s.input(crate::Input::Point(PointInput::Picked(cadcraft_geom::Vec2::new(50.0, 50.0)))).unwrap();
     assert!(!s.lisp_running());
     assert!(s.doc().unwrap().model.iter().any(|e| matches!(&e.kind, cadcraft_doc::EntityKind::Circle(c) if c.center.x == 50.0 && c.radius == 2.0)));
 }
@@ -396,7 +396,7 @@ fn a_waiting_routine_is_a_prompt_with_a_rubber_band() {
     // getcorner drags a rectangle from its corner.
     let band = s.preview(cadcraft_geom::Vec2::new(3.0, 2.0));
     assert_eq!(band.len(), 4);
-    s.input(crate::Input::Point(cadcraft_geom::Vec2::new(3.0, 2.0))).unwrap();
+    s.input(crate::Input::Point(PointInput::Picked(cadcraft_geom::Vec2::new(3.0, 2.0)))).unwrap();
     assert!(!s.prompting());
     // getpoint with a base point drags a line; without one, nothing.
     s.cmdline("(getpoint '(1 1))").unwrap();

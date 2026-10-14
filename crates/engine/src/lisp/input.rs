@@ -100,7 +100,10 @@ impl GetRequest {
                 Ok(Value::Nil)
             }
             Input::Keyword(k) => Ok(Value::str(&k)),
-            Input::Point(p) => self.point(s, [p.x, p.y, 0.0]),
+            Input::Point(pi) => {
+                let p = pi.point();
+                self.point(s, [p.x, p.y, 0.0])
+            }
             // A deferred tangent/perpendicular snap is the point it was picked at here.
             Input::Deferred(d) => self.point(s, [d.at.x, d.at.y, 0.0]),
             Input::Pick(hs) => match (self.kind, hs.first()) {

@@ -253,7 +253,8 @@ impl Interactive for ToleranceM {
                 self.step += 1;
             }
             _ => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let t = make(self.style.clone(), p, 0.0, self.text());
                     s.add_entity(EntityKind::Tolerance(t))?;
                     return Ok(Step::Done);

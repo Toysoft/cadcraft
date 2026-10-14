@@ -186,7 +186,8 @@ impl VplayerM {
         self.stage = match stage {
             Stage::Option => Stage::Option,
             Stage::List => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     match viewport_at(s, p) {
                         Some(h) => Self::list(s, h),
                         None => s.echo("No viewport found there."),
@@ -257,7 +258,8 @@ impl VplayerM {
                 }
             }
             Stage::Select(change, layers, mut picked) => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     match viewport_at(s, p) {
                         Some(h) if !picked.contains(&h) => {
                             picked.push(h);

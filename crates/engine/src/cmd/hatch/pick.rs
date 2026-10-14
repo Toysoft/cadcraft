@@ -160,7 +160,8 @@ impl Interactive for HatchPickM {
                 self.keep(s, mode);
                 Ok(Step::Done)
             }
-            (PickMode::Points, Input::Point(q)) => {
+            (PickMode::Points, Input::Point(pi)) => {
+                let q = pi.point();
                 if self.count() >= MAX_PICKS {
                     s.echo(format!("At most {MAX_PICKS} picks."));
                     return Ok(Step::Continue);
@@ -188,7 +189,8 @@ impl Interactive for HatchPickM {
                 s.echo(if others == 0 { format!("{} found", closed.len()) } else { format!("{} found, {others} not closed", closed.len()) });
                 Ok(Step::Continue)
             }
-            (PickMode::Origin, Input::Point(q)) => {
+            (PickMode::Origin, Input::Point(pi)) => {
+                let q = pi.point();
                 s.hatch_picks = Some(HatchPicks { mode, origin: Some(q), ..HatchPicks::default() });
                 Ok(Step::Done)
             }

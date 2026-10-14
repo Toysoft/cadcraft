@@ -596,11 +596,13 @@ impl Interactive for PasteM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) if self.mode == PasteMode::Block => {
+            Input::Point(pi) if self.mode == PasteMode::Block => {
+                let p = pi.point();
                 clipboard::paste_block(s, p)?;
                 Ok(Step::Done)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let base = s.clipboard_base;
                 paste(s, p - base)?;
                 Ok(Step::Done)
@@ -676,7 +678,8 @@ impl Interactive for CopyBaseM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.base.is_none() {
-            if let Input::Point(p) = i {
+            if let Input::Point(pi) = i {
+                let p = pi.point();
                 self.base = Some(p);
                 if self.sel.done {
                     let hs = self.sel.picked.clone();

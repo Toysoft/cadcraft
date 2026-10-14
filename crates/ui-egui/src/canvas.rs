@@ -3,8 +3,8 @@
 
 use cadcraft_color::Rgb;
 use cadcraft_doc::Handle;
-use cadcraft_engine::Input;
 use cadcraft_engine::snap::{self, SnapHit};
+use cadcraft_engine::{Input, PointInput};
 use cadcraft_geom::{Bounds2, Vec2};
 use cadcraft_render::{DisplayList, Kind};
 use egui::{Color32, Pos2, Rect, Sense, Shape, Stroke, pos2, vec2};
@@ -1426,7 +1426,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 let w = effective_point(app, xf.to_world(*pos), &xf, ui.ctx());
                 let result = match app.canvas.snap {
                     Some(hit) => app.session.input_snapped(hit),
-                    None => app.session.input(Input::Point(w)),
+                    None => app.session.input(Input::Point(PointInput::Picked(w))),
                 };
                 if let Err(e) = result {
                     app.session.echo(e.to_string());
@@ -1514,7 +1514,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             // Preserve a snap's viewport origin for DIST, and its deferred curve where needed.
             let result = match app.canvas.snap {
                 Some(hit) => app.session.input_snapped(hit),
-                None => app.session.input(Input::Point(p)),
+                None => app.session.input(Input::Point(PointInput::Picked(p))),
             };
             if let Err(e) = result {
                 app.session.echo(e.to_string());
@@ -1546,7 +1546,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             && let Some(end) = ui.input(|i| i.pointer.interact_pos())
         {
             let end = xf.to_world(end);
-            let done = if app.session.prompting() { app.session.input(Input::Point(end)) } else { app.session.idle_click(end, mods.shift) };
+            let done = if app.session.prompting() {
+                app.session.input(Input::Point(PointInput::Picked(end)))
+            } else {
+                app.session.idle_click(end, mods.shift)
+            };
             if let Err(e) = done {
                 app.session.echo(e.to_string());
             }
@@ -1873,7 +1877,7 @@ fn edit_text_at(app: &mut CadApp, p: Vec2) -> bool {
         return false;
     }
     app.start("textedit");
-    if let Err(e) = app.session.input(Input::Point(p)) {
+    if let Err(e) = app.session.input(Input::Point(PointInput::Picked(p))) {
         app.session.echo(e.to_string());
     }
     true
@@ -2584,7 +2588,7 @@ pub(crate) mod tests {
         let ctx = egui::Context::default();
         painted_text(&mut app, &ctx, pos2(700.0, 450.0));
         app.session.cmdline("line").unwrap();
-        app.session.input(Input::Point(Vec2::ZERO)).unwrap();
+        app.session.input(Input::Point(PointInput::Picked(Vec2::ZERO))).unwrap();
         let at = app.canvas.xf.unwrap().to_screen(Vec2::ZERO) + vec2(130.0, -70.0);
         painted_text(&mut app, &ctx, at);
         let text = painted_text(&mut app, &ctx, at);

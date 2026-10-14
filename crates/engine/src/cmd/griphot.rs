@@ -189,7 +189,10 @@ impl GripEdit {
 
     fn action_input(&mut self, s: &mut Session, action: GripAction, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) => self.act(s, action, Some(p), None),
+            Input::Point(pi) => {
+                let p = pi.point();
+                self.act(s, action, Some(p), None)
+            }
             Input::Deferred(d) => self.act(s, action, Some(d.at), None),
             Input::Text(t) if matches!(action, GripAction::Lengthen | GripAction::Radius) => {
                 let v = number(&t).filter(|v| v.is_finite()).ok_or_else(|| other("Requires a number or point."))?;
@@ -271,7 +274,8 @@ impl GripEdit {
                 s.echo(self.label());
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let m = self.matrix(p);
                 self.edit(s, p, m)
             }
@@ -309,11 +313,12 @@ impl GripEdit {
             Ok(if rotate { a.angle_to(b) } else { a.dist(b) })
         };
         match (self.ask, i) {
-            (Ask::RefFirst, Input::Point(p)) => self.ask = Ask::RefSecond(p),
+            (Ask::RefFirst, Input::Point(pi)) => self.ask = Ask::RefSecond(pi.point()),
             (Ask::RefFirst, Input::Text(t)) => self.ask = Ask::RefNew(value(&t)?),
             (Ask::RefFirst, Input::Enter) => self.ask = Ask::RefNew(if rotate { 0.0 } else { 1.0 }),
-            (Ask::RefSecond(a), Input::Point(p)) => self.ask = Ask::RefNew(between(a, p)?),
-            (Ask::RefNew(_), Input::Point(p)) => {
+            (Ask::RefSecond(a), Input::Point(pi)) => self.ask = Ask::RefNew(between(a, pi.point())?),
+            (Ask::RefNew(_), Input::Point(pi)) => {
+                let p = pi.point();
                 let m = self.matrix(p).ok_or_else(|| other("Requires a positive length."))?;
                 return self.edit(s, p, Some(m));
             }
@@ -391,7 +396,8 @@ impl Interactive for GripEdit {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.picking {
             return match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let found = Self::grips_at(s, p);
                     if found.is_empty() {
                         return Err(other("No grip of a selected object there."));
@@ -413,7 +419,8 @@ impl Interactive for GripEdit {
         match self.ask {
             Ask::Mode => self.mode_input(s, i),
             Ask::Base => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     self.base = p;
                     self.ask = Ask::Mode;
                     Ok(Step::Continue)

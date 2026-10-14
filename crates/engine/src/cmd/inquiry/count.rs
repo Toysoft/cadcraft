@@ -398,7 +398,8 @@ impl Interactive for CountTableM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(at) => {
+            Input::Point(pi) => {
+                let at = pi.point();
                 let r = run_counttable(s, &json!({ "at": [at.x, at.y] }))?;
                 echo_lines(s, &r);
                 Ok(Step::Done)

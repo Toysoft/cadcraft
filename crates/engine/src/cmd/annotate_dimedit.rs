@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::machines::{SelOutcome, SelectPhase};
 use super::*;
-use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step};
+use crate::{Accept, Input, Interactive, PointInput, Prompt, Result, Session, Step};
 
 /// Most objects DIMBREAK Auto looks at, and most breaks it adds to one dimension.
 const MAX_BREAK_OBJECTS: usize = 20_000;
@@ -329,16 +329,17 @@ impl Interactive for JoggedM {
             return Ok(Step::Continue);
         }
         match (self.circle, self.center, self.at, i) {
-            (None, _, _, Input::Point(p)) => match pick_at(s, p).and_then(|h| circle_of(s, h)) {
+            (None, _, _, Input::Point(PointInput::Picked(p))) => match pick_at(s, p).and_then(|h| circle_of(s, h)) {
                 Some(t) => self.circle = Some(t),
                 None => s.echo("Object selected is not a circle or arc."),
             },
-            (Some(_), None, _, Input::Point(p)) => self.center = Some(p),
+            (Some(_), None, _, Input::Point(pi)) => self.center = Some(pi.point()),
             (Some(_), Some(_), None, Input::Keyword(k)) => {
                 self.text.keyword(&k);
             }
-            (Some(_), Some(_), None, Input::Point(p)) => self.at = Some(p),
-            (Some((c, r)), Some(o), Some(at), Input::Point(j)) => {
+            (Some(_), Some(_), None, Input::Point(pi)) => self.at = Some(pi.point()),
+            (Some((c, r)), Some(o), Some(at), Input::Point(pi)) => {
+                let j = pi.point();
                 if let Some(k) = jogged_kind(s, c, r, o, at, Some(j), "") {
                     add_dim(s, self.text.apply(k))?;
                 }
@@ -432,7 +433,8 @@ impl Interactive for JogLineM {
                     None => s.echo("Select a linear or aligned dimension."),
                 }
             }
-            (Some(h), Input::Point(at)) => {
+            (Some(h), Input::Point(pi)) => {
+                let at = pi.point();
                 run_jogline(s, &json!({ "handle": h.hex(), "at": [at.x, at.y] }))?;
                 return Ok(Step::Done);
             }
@@ -628,11 +630,13 @@ impl Interactive for DimBreakM {
         }
         if self.manual_mode {
             return match i {
-                Input::Point(p) if self.manual.is_empty() => {
+                Input::Point(pi) if self.manual.is_empty() => {
+                    let p = pi.point();
                     self.manual.push(p);
                     Ok(Step::Continue)
                 }
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let a = self.manual.first().copied().unwrap_or(p);
                     self.run(s, json!({ "mode": "manual", "first": [a.x, a.y], "second": [p.x, p.y] }))
                 }

@@ -373,8 +373,9 @@ impl StretchM {
     fn select(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if let Some(mut m) = self.mode.take() {
             match &i {
-                Input::Point(p) => {
-                    if m.push(*p) {
+                Input::Point(pi) => {
+                    let p = pi.point();
+                    if m.push(p) {
                         self.finish_mode(s, m)?;
                     } else {
                         self.mode = Some(m);
@@ -396,25 +397,28 @@ impl StretchM {
             }
         }
         match i {
-            Input::Point(p) => match self.corner.take() {
-                Some(c) => {
-                    let bx = cadcraft_geom::Bounds2::new(c, p);
-                    let space = s.space();
-                    let hs = crate::select::select_window(s.doc()?, &space, bx, p.x < c.x);
-                    if !self.removing {
-                        self.windows.push(StretchArea::Box(bx));
+            Input::Point(pi) => {
+                let p = pi.point();
+                match self.corner.take() {
+                    Some(c) => {
+                        let bx = cadcraft_geom::Bounds2::new(c, p);
+                        let space = s.space();
+                        let hs = crate::select::select_window(s.doc()?, &space, bx, p.x < c.x);
+                        if !self.removing {
+                            self.windows.push(StretchArea::Box(bx));
+                        }
+                        self.add(s, hs, false);
                     }
-                    self.add(s, hs, false);
-                }
-                None => {
-                    let aperture = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
-                    let space = s.space();
-                    match crate::select::pick(s.doc()?, &space, p, aperture) {
-                        Some(h) => self.add(s, vec![h], true),
-                        None => self.corner = Some(p),
+                    None => {
+                        let aperture = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
+                        let space = s.space();
+                        match crate::select::pick(s.doc()?, &space, p, aperture) {
+                            Some(h) => self.add(s, vec![h], true),
+                            None => self.corner = Some(p),
+                        }
                     }
                 }
-            },
+            }
             Input::Pick(hs) => self.add(s, hs, true),
             Input::Text(t) | Input::Keyword(t) => {
                 self.corner = None;
@@ -496,7 +500,8 @@ impl Interactive for StretchM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match (self.phase, i) {
             (StretchPhase::Select, i) => self.select(s, i),
-            (StretchPhase::Base, Input::Point(p)) => {
+            (StretchPhase::Base, Input::Point(pi)) => {
+                let p = pi.point();
                 self.base = Some(p);
                 self.phase = StretchPhase::Second;
                 Ok(Step::Continue)
@@ -509,9 +514,9 @@ impl Interactive for StretchM {
                 self.phase = StretchPhase::Displacement;
                 Ok(Step::Continue)
             }
-            (StretchPhase::Displacement, Input::Point(p)) => self.apply(s, p),
+            (StretchPhase::Displacement, Input::Point(pi)) => self.apply(s, pi.point()),
             (StretchPhase::Displacement, Input::Enter) => Ok(Step::Done),
-            (StretchPhase::Second, Input::Point(p)) => self.apply(s, p - self.base.unwrap_or(p)),
+            (StretchPhase::Second, Input::Point(pi)) => self.apply(s, pi.point() - self.base.unwrap_or(pi.point())),
             (StretchPhase::Second, Input::Enter) => self.apply(s, self.base.unwrap_or(Vec2::ZERO)),
             _ => Ok(Step::Continue),
         }
@@ -1717,7 +1722,8 @@ impl SelectThen {
     fn scale_reference(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         let Some(base) = self.pts.first().copied() else { return Ok(Step::Done) };
         match (self.ref_len, self.ref_from, i) {
-            (None, None, Input::Point(p)) => {
+            (None, None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.ref_from = Some(p);
                 Ok(Step::Continue)
             }
@@ -1729,11 +1735,12 @@ impl SelectThen {
                 self.ref_len = Some(1.0);
                 Ok(Step::Continue)
             }
-            (None, Some(a), Input::Point(p)) => {
+            (None, Some(a), Input::Point(pi)) => {
+                let p = pi.point();
                 self.ref_len = Some(require_length(Some(a.dist(p)))?);
                 Ok(Step::Continue)
             }
-            (Some(r), _, Input::Point(p)) => self.scale_by(s, base, base.dist(p) / r),
+            (Some(r), _, Input::Point(pi)) => self.scale_by(s, base, base.dist(pi.point()) / r),
             (Some(r), _, Input::Text(t)) => {
                 let n = require_length(number(&t))?;
                 self.scale_by(s, base, n / r)
@@ -1755,10 +1762,11 @@ impl SelectThen {
         };
         let Some(r) = self.ref_angle else {
             match (self.ref_from, i) {
-                (None, Input::Point(p)) => self.ref_from = Some(p),
+                (None, Input::Point(pi)) => self.ref_from = Some(pi.point()),
                 (None, Input::Text(t)) => self.ref_angle = Some(angle(&t)?),
                 (None, Input::Enter) => self.ref_angle = Some(0.0),
-                (Some(a), Input::Point(p)) => {
+                (Some(a), Input::Point(pi)) => {
+                    let p = pi.point();
                     self.ref_angle = Some(two_points(a, p)?);
                     self.ref_from = None;
                 }
@@ -1771,14 +1779,15 @@ impl SelectThen {
                 self.ref_points = true;
                 return Ok(Step::Continue);
             }
-            (false, _, Input::Point(p)) => base.angle_to(p),
+            (false, _, Input::Point(pi)) => base.angle_to(pi.point()),
             (false, _, Input::Text(t)) => angle(&t)?,
             (false, _, Input::Enter) => 0.0,
-            (true, None, Input::Point(p)) => {
+            (true, None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.ref_from = Some(p);
                 return Ok(Step::Continue);
             }
-            (true, Some(a), Input::Point(p)) => two_points(a, p)?,
+            (true, Some(a), Input::Point(pi)) => two_points(a, pi.point())?,
             _ => return Ok(Step::Continue),
         };
         transform_entities(s, &self.objs, &Mat3::rotate_about(base, new - r), self.copy_mode)?;
@@ -1967,11 +1976,13 @@ impl Interactive for SelectThen {
                 s.set_selection(Vec::new());
                 Ok(Step::Done)
             }
-            (_, 0, Input::Point(p)) => {
+            (_, 0, Input::Point(pi)) => {
+                let p = pi.point();
                 self.pts.push(p);
                 Ok(Step::Continue)
             }
-            (Op::Move, 1, Input::Point(p)) => {
+            (Op::Move, 1, Input::Point(pi)) => {
+                let p = pi.point();
                 let d = p - self.pts[0];
                 transform_entities(s, &self.objs, &Mat3::translate(d), false)?;
                 s.set_selection(Vec::new());
@@ -1983,7 +1994,8 @@ impl Interactive for SelectThen {
                 s.set_selection(Vec::new());
                 Ok(Step::Done)
             }
-            (Op::Copy, _, Input::Point(p)) => {
+            (Op::Copy, _, Input::Point(pi)) => {
+                let p = pi.point();
                 let d = p - self.pts[0];
                 transform_entities(s, &self.objs, &Mat3::translate(d), true)?;
                 Ok(Step::Continue)
@@ -1994,7 +2006,10 @@ impl Interactive for SelectThen {
             }
             (Op::Rotate, 1, inp @ (Input::Point(_) | Input::Text(_) | Input::Enter)) => {
                 let a = match inp {
-                    Input::Point(p) => self.pts[0].angle_to(p),
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        self.pts[0].angle_to(p)
+                    }
                     Input::Text(t) => s
                         .angle_settings()
                         .rotation(&t)
@@ -2009,7 +2024,10 @@ impl Interactive for SelectThen {
             }
             (Op::Scale, 1, inp @ (Input::Point(_) | Input::Text(_) | Input::Enter)) => {
                 let f = match inp {
-                    Input::Point(p) => self.pts[0].dist(p),
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        self.pts[0].dist(p)
+                    }
                     Input::Text(t) => {
                         number(&t).filter(|f| f.is_finite() && *f > 0.0).ok_or_else(|| EngineError::Other("Requires a positive number.".into()))?
                     }
@@ -2022,7 +2040,8 @@ impl Interactive for SelectThen {
                 s.set_selection(Vec::new());
                 Ok(Step::Done)
             }
-            (Op::Mirror, 1, Input::Point(p)) => {
+            (Op::Mirror, 1, Input::Point(pi)) => {
+                let p = pi.point();
                 if p.near(self.pts[0], 1e-12) {
                     return Err(EngineError::Other("Mirror line points must differ.".into()));
                 }
@@ -2235,7 +2254,8 @@ impl Interactive for OffsetM {
                     let d = number(&t).ok_or_else(|| EngineError::Other("Requires a positive distance.".into()))?;
                     self.set_distance(s, d)?;
                 }
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     if !p.is_finite() {
                         return Err(EngineError::Other("Invalid point.".into()));
                     }
@@ -2300,7 +2320,8 @@ impl Interactive for OffsetM {
                 s.set_selection(Vec::new());
                 Ok(Step::Done)
             }
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 let ap = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
                 let space = s.space();
                 match crate::select::pick(s.doc()?, &space, p, ap) {
@@ -2312,7 +2333,8 @@ impl Interactive for OffsetM {
                 }
                 Ok(Step::Continue)
             }
-            (Some(h), Input::Point(p)) => {
+            (Some(h), Input::Point(pi)) => {
+                let p = pi.point();
                 let e = s.doc()?.entity(h).map(|e| (**e).clone());
                 let mut made = None;
                 if let Some(e) = e {
@@ -2561,7 +2583,8 @@ impl Interactive for FilletM {
                 s.set_selection(Vec::new());
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let ap = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
                 let space = s.space();
                 let Some(h) = crate::select::pick(s.doc()?, &space, p, ap) else {
@@ -2817,7 +2840,8 @@ impl Interactive for BreakM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match (self.obj, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 let ap = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
                 let space = s.space();
                 match crate::select::pick(s.doc()?, &space, p, ap) {
@@ -2833,12 +2857,14 @@ impl Interactive for BreakM {
                 self.first_point = true;
                 Ok(Step::Continue)
             }
-            (Some((h, _)), Input::Point(p1)) if self.first_point => {
+            (Some((h, _)), Input::Point(pi)) if self.first_point => {
+                let p1 = pi.point();
                 self.obj = Some((h, p1));
                 self.first_point = false;
                 Ok(Step::Continue)
             }
-            (Some((h, p1)), Input::Point(p2)) => {
+            (Some((h, p1)), Input::Point(pi)) => {
+                let p2 = pi.point();
                 break_entity(s, h, p1, p2)?;
                 s.set_selection(Vec::new());
                 Ok(Step::Done)
@@ -2885,7 +2911,10 @@ impl Interactive for DisplaceM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if self.displacement {
             let d = match i {
-                Input::Point(p) => p,
+                Input::Point(pi) => {
+                    let p = pi.point();
+                    p
+                }
                 Input::Enter => Vec2::ZERO,
                 _ => return Ok(Step::Continue),
             };

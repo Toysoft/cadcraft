@@ -443,15 +443,17 @@ impl Interactive for ZoomM {
                 st.set_zoom_frame(View { center: b.center, height: b.height });
                 return Ok(Step::Done);
             }
-            (ZoomStage::Dynamic(mut b), Input::Point(p)) => {
-                (b.center, b.height) = b.moved(*p);
+            (ZoomStage::Dynamic(mut b), Input::Point(pi)) => {
+                let p = pi.point();
+                (b.center, b.height) = b.moved(p);
                 b.sizing = !b.sizing;
                 self.stage = ZoomStage::Dynamic(b);
                 return Ok(Step::Continue);
             }
             (ZoomStage::Dynamic(_), _) => return Err(crate::EngineError::Other("Requires a point, or Enter to accept the view.".into())),
-            (ZoomStage::Center, Input::Point(c)) => {
-                self.stage = ZoomStage::CenterHeight(*c);
+            (ZoomStage::Center, Input::Point(pi)) => {
+                let c = pi.point();
+                self.stage = ZoomStage::CenterHeight(c);
                 return Ok(Step::Continue);
             }
             (ZoomStage::Center, Input::Enter) => return Ok(Step::Done),
@@ -503,16 +505,19 @@ impl Interactive for ZoomM {
                 zoom(s, &json!({ "mode": mode }))?;
                 Ok(Step::Done)
             }
-            Input::Point(p) => match self.first {
-                None => {
-                    self.first = Some(p);
-                    Ok(Step::Continue)
+            Input::Point(pi) => {
+                let p = pi.point();
+                match self.first {
+                    None => {
+                        self.first = Some(p);
+                        Ok(Step::Continue)
+                    }
+                    Some(a) => {
+                        fit(s, Bounds2::new(a, p))?;
+                        Ok(Step::Done)
+                    }
                 }
-                Some(a) => {
-                    fit(s, Bounds2::new(a, p))?;
-                    Ok(Step::Done)
-                }
-            },
+            }
             Input::Text(t) => {
                 // nX: relative to the current view; nXP: to paper space; n: to the limits.
                 let p = typed_factor(&t).ok_or_else(|| crate::EngineError::Other("Requires a point, scale factor or option keyword.".into()))?;
@@ -596,11 +601,13 @@ impl Interactive for PanM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match (self.first, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.first = Some(p);
                 Ok(Step::Continue)
             }
-            (Some(a), Input::Point(b)) => {
+            (Some(a), Input::Point(pi)) => {
+                let b = pi.point();
                 run_pan(s, &json!({ "from": [a.x, a.y], "to": [b.x, b.y] }))?;
                 Ok(Step::Done)
             }

@@ -549,7 +549,8 @@ impl Interactive for SplineditM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         let Some(h) = self.h else {
             return match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                     if !matches!(curves::entity(s, h)?.kind, EntityKind::Spline(_)) {
                         return Err(other("Object selected is not a spline."));
@@ -568,7 +569,10 @@ impl Interactive for SplineditM {
         };
         let kw = k.as_deref().unwrap_or("");
         let point = match &i {
-            Input::Point(p) => Some(*p),
+            Input::Point(pi) => {
+                let p = pi.point();
+                Some(p)
+            }
             _ => None,
         };
         let enter = i == Input::Enter;

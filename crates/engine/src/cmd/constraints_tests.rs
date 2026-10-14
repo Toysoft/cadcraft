@@ -2,7 +2,7 @@ use cadcraft_doc::{ConstraintKind, EntityKind, Handle};
 use cadcraft_geom::Vec2;
 use serde_json::json;
 
-use crate::{Input, Session, command_specs};
+use crate::{Input, PointInput, Session, command_specs};
 
 fn line(s: &mut Session, a: [f64; 2], b: [f64; 2]) -> String {
     s.execute("line", &json!({ "points": [a, b] })).unwrap();
@@ -84,18 +84,18 @@ fn interactive_prompts() {
     let b = line(&mut s, [0.0, 3.0], [8.0, 3.9]);
     s.cmdline("gchorizontal").unwrap();
     assert!(s.prompt_text().contains("Select an object"));
-    s.input(Input::Point(Vec2::new(4.0, 0.2))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(4.0, 0.2)))).unwrap();
     assert!(s.running.is_none());
     s.cmdline("geomconstraint pa").unwrap();
     assert!(s.prompt_text().contains("Select first object"), "{}", s.prompt_text());
-    s.input(Input::Point(Vec2::new(4.0, 0.2))).unwrap();
-    s.input(Input::Point(Vec2::new(4.0, 3.45))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(4.0, 0.2)))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(4.0, 3.45)))).unwrap();
     assert!(s.running.is_none());
     let ((a0, a1), (b0, b1)) = (ends(&s, &a), ends(&s, &b));
     assert!((a0.y - a1.y).abs() < 1e-6 && (b0.y - b1.y).abs() < 1e-6);
     // DIMCONSTRAINT → aligned → pick → value with a name.
     s.cmdline("dimconstraint al").unwrap();
-    s.input(Input::Point(Vec2::new(4.0, a0.y))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(4.0, a0.y)))).unwrap();
     assert!(s.prompt_text().contains("dimension value"), "{}", s.prompt_text());
     s.cmdline("width=5").unwrap();
     assert!(s.running.is_none());
@@ -110,8 +110,8 @@ fn interactive_prompts() {
     let c = line(&mut s, [20.0, 0.0], [30.0, 0.0]);
     let e = line(&mut s, [30.3, 0.2], [30.0, 9.0]);
     s.cmdline("gccoincident").unwrap();
-    s.input(Input::Point(Vec2::new(29.98, 0.0))).unwrap();
-    s.input(Input::Point(Vec2::new(30.28, 0.3))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(29.98, 0.0)))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(30.28, 0.3)))).unwrap();
     assert!(ends(&s, &c).1.near(ends(&s, &e).0, 1e-6));
     // AUTOCONSTRAIN with a pickfirst selection.
     let f = line(&mut s, [40.0, 0.0], [50.0, 0.01]);
@@ -202,9 +202,13 @@ fn hostile_constraint_params_never_panic() {
         }
         // Interactive: start, junk inputs, cancel.
         s.start(id).unwrap();
-        for i in
-            [Input::Point(Vec2::new(5.0, 0.0)), Input::Text("x".into()), Input::Point(Vec2::new(0.0, 7.0)), Input::Enter, Input::Text("1/0".into())]
-        {
+        for i in [
+            Input::Point(PointInput::Picked(Vec2::new(5.0, 0.0))),
+            Input::Text("x".into()),
+            Input::Point(PointInput::Picked(Vec2::new(0.0, 7.0))),
+            Input::Enter,
+            Input::Text("1/0".into()),
+        ] {
             let _ = s.input(i);
         }
         s.cancel();

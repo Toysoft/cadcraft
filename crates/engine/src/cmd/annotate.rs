@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::helpers::v3;
 use super::machines::{SelOutcome, SelectPhase, SelectRun};
 use super::*;
-use crate::{Accept, EngineError, Input, Interactive, LeaderOrder, MLeaderOptions, Prompt, Result, Session, Step};
+use crate::{Accept, EngineError, Input, Interactive, LeaderOrder, MLeaderOptions, PointInput, Prompt, Result, Session, Step};
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
@@ -1021,7 +1021,8 @@ impl Interactive for LinearM {
             return Ok(Step::Continue);
         }
         if self.selecting {
-            if let Input::Point(p) = i {
+            if let Input::Point(pi) = i {
+                let p = pi.point();
                 let Some(h) = pick_at(s, p) else {
                     s.echo("*Invalid selection*");
                     return Ok(Step::Continue);
@@ -1050,11 +1051,13 @@ impl Interactive for LinearM {
                 self.selecting = true;
                 Ok(Step::Continue)
             }
-            (n, Input::Point(p)) if n < 2 => {
+            (n, Input::Point(pi)) if n < 2 => {
+                let p = pi.point();
                 self.pts.push(p);
                 Ok(Step::Continue)
             }
-            (_, Input::Point(at)) => {
+            (_, Input::Point(pi)) => {
+                let at = pi.point();
                 let (Some(&a), Some(&b)) = (self.pts.first(), self.pts.get(1)) else { return Ok(Step::Continue) };
                 let k = self.text.apply(dim(s, linear_kind(a, b, at, self.rotation, self.aligned), at, a, b, Vec2::ZERO, Vec2::ZERO, ""));
                 add_dim(s, k)?;
@@ -1128,14 +1131,16 @@ impl Interactive for RadialM {
             return Ok(Step::Continue);
         }
         match (self.target, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 match pick_at(s, p).and_then(|h| circle_of(s, h)) {
                     Some(t) => self.target = Some(t),
                     None => s.echo("Object selected is not a circle or arc."),
                 }
                 Ok(Step::Continue)
             }
-            (Some((c, r)), Input::Point(at)) => {
+            (Some((c, r)), Input::Point(pi)) => {
+                let at = pi.point();
                 let k = self.kind(s, c, r, at);
                 add_dim(s, k)?;
                 Ok(Step::Done)
@@ -1223,7 +1228,8 @@ impl Interactive for AngularM {
             return Ok(Step::Continue);
         }
         if self.asking_quadrant {
-            if let Input::Point(q) = i {
+            if let Input::Point(pi) = i {
+                let q = pi.point();
                 self.quadrant = Some(q);
             }
             self.asking_quadrant = false;
@@ -1231,7 +1237,8 @@ impl Interactive for AngularM {
         }
         if let Some((v, a, b)) = self.geometry() {
             return match i {
-                Input::Point(at) => {
+                Input::Point(pi) => {
+                    let at = pi.point();
                     let at = self.located(v, at);
                     let k = match (self.handles.as_slice(), self.arc) {
                         ([h1, h2], None) => angular_from_lines(s, *h1, *h2, at),
@@ -1255,7 +1262,10 @@ impl Interactive for AngularM {
         }
         if self.vertex {
             match i {
-                Input::Point(p) => self.vertex_mode.push(p),
+                Input::Point(pi) => {
+                    let p = pi.point();
+                    self.vertex_mode.push(p)
+                }
                 Input::Enter => return Ok(Step::Cancel),
                 _ => {}
             }
@@ -1266,7 +1276,8 @@ impl Interactive for AngularM {
                 self.vertex = true;
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let Some(h) = pick_at(s, p) else {
                     s.echo("*Invalid selection*");
                     return Ok(Step::Continue);
@@ -1361,8 +1372,8 @@ impl Interactive for ArcLenM {
         }
         if let Some(picked) = self.partial.take() {
             match (i, picked.first().copied(), self.arc) {
-                (Input::Point(p), None, _) => self.partial = Some(vec![p]),
-                (Input::Point(q), Some(p), Some(g)) => match arc_part(&g, p, q) {
+                (Input::Point(PointInput::Picked(p)), None, _) => self.partial = Some(vec![p]),
+                (Input::Point(PointInput::Picked(q)), Some(p), Some(g)) => match arc_part(&g, p, q) {
                     Some(part) => self.arc = Some(part),
                     None => s.echo("The two points must be different."),
                 },
@@ -1372,7 +1383,8 @@ impl Interactive for ArcLenM {
             return Ok(Step::Continue);
         }
         match (self.arc, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 if let Some(EntityKind::Arc(a)) = pick_at(s, p).and_then(|h| s.doc().ok()?.entity(h).map(|e| e.kind.clone())) {
                     self.arc = Some(cadcraft_geom::Arc::new(a.center.xy(), a.radius, a.start, a.end));
                 } else {
@@ -1380,7 +1392,8 @@ impl Interactive for ArcLenM {
                 }
                 Ok(Step::Continue)
             }
-            (Some(g), Input::Point(at)) => {
+            (Some(g), Input::Point(pi)) => {
+                let at = pi.point();
                 add_dim(s, self.text.apply(dim(s, DimKind::ArcLength, at, g.start_point(), g.end_point(), g.center, Vec2::ZERO, "")))?;
                 Ok(Step::Done)
             }
@@ -1440,7 +1453,8 @@ impl Interactive for OrdinateM {
             return Ok(Step::Continue);
         }
         match (self.feature, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.feature = Some(p);
                 Ok(Step::Continue)
             }
@@ -1454,7 +1468,8 @@ impl Interactive for OrdinateM {
                 }
                 Ok(Step::Continue)
             }
-            (Some(f), Input::Point(l)) => {
+            (Some(f), Input::Point(pi)) => {
+                let l = pi.point();
                 add_dim(s, self.kind(s, f, l))?;
                 Ok(Step::Done)
             }
@@ -1497,7 +1512,8 @@ impl Interactive for ChainM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let prev = last_linear(s).ok_or_else(|| EngineError::Other("no linear dimension".into()))?;
                 let k = chained(s, &prev, p, self.baseline);
                 self.created.push(add_dim(s, k)?);
@@ -1788,7 +1804,8 @@ impl Interactive for MLeaderM {
             return if self.leader_done { self.finish(s) } else { Ok(Step::Continue) };
         }
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let p = self.constrained(p);
                 self.pts.push(p);
                 if self.pts.len() >= self.max_points || self.no_leader() {

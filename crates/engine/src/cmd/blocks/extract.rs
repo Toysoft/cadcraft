@@ -367,7 +367,8 @@ impl Interactive for ExtractM {
                 self.stage = if self.table { Stage::Point } else { Stage::File };
             }
             Stage::Point => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     self.at = Some(p);
                     return self.after_point(s);
                 }

@@ -15,7 +15,7 @@ use cadcraft_geom::{Bounds2, Vec2};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::{Accept, EngineError, Input, Interactive, Prompt, Session, Step};
+use crate::{Accept, EngineError, Input, Interactive, PointInput, Prompt, Session, Step};
 
 /// Where plotter configuration files live. Names are file names ending in
 /// [`cadcraft_doc::PLOTTER_FILE_EXT`]; the engine never passes paths.
@@ -370,11 +370,11 @@ impl Interactive for PlotWindowM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match (i, self.first) {
-            (Input::Point(p), None) => {
+            (Input::Point(PointInput::Picked(p)), None) => {
                 self.first = Some(p);
                 Ok(Step::Continue)
             }
-            (Input::Point(p), Some(a)) => {
+            (Input::Point(PointInput::Picked(p)), Some(a)) => {
                 set_plot_window(s, a, p)?;
                 Ok(Step::Done)
             }

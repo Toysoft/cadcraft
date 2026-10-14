@@ -472,7 +472,8 @@ impl Interactive for BlockM {
                 Ok(Step::Continue)
             }
             (Some(_), None) => {
-                if let Input::Point(p) = i {
+                if let Input::Point(pi) = i {
+                    let p = pi.point();
                     self.base = Some(p);
                     self.sel = SelectPhase::begin(s);
                     if self.sel.done {
@@ -688,7 +689,8 @@ impl Interactive for InsertM {
                 }
             }
             InsStage::Point => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     self.at = Some(p);
                     return self.advance(s);
                 }
@@ -698,7 +700,8 @@ impl Interactive for InsertM {
                 _ => {}
             },
             InsStage::BasePoint => {
-                if let Input::Point(p) = i {
+                if let Input::Point(pi) = i {
+                    let p = pi.point();
                     self.base = Some(p);
                     self.stage = InsStage::Point;
                 }
@@ -726,7 +729,8 @@ impl Interactive for InsertM {
             }
             InsStage::XScale => match i {
                 Input::Keyword(k) if k == "Corner" => self.stage = InsStage::Corner,
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     self.scale = Some(Self::corner(self.at.unwrap_or_default(), p)?);
                     return self.advance(s);
                 }
@@ -741,7 +745,8 @@ impl Interactive for InsertM {
                 _ => {}
             },
             InsStage::Corner => {
-                if let Input::Point(p) = i {
+                if let Input::Point(pi) = i {
+                    let p = pi.point();
                     self.scale = Some(Self::corner(self.at.unwrap_or_default(), p)?);
                     return self.advance(s);
                 }
@@ -759,7 +764,10 @@ impl Interactive for InsertM {
             InsStage::Rotation => {
                 let a = self.at.unwrap_or_default();
                 self.rotation = Some(match i {
-                    Input::Point(p) => a.angle_to(p),
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        a.angle_to(p)
+                    }
                     Input::Text(t) => s.angle_settings().direction(&t).ok_or_else(|| EngineError::Other("Requires an angle.".into()))?,
                     _ => 0.0,
                 });
@@ -829,7 +837,8 @@ impl Interactive for AttdefM {
             (Some(_), None, _) => self.prompt = text,
             (Some(_), Some(_), None) => self.default = text,
             (Some(tag), Some(pr), Some(def)) => {
-                if let Input::Point(p) = i {
+                if let Input::Point(pi) = i {
+                    let p = pi.point();
                     let h = s.doc()?.header.f64("TEXTSIZE", 0.2);
                     let k = attdef_kind(s, tag, pr, def, p, h, false);
                     s.add_entity(k)?;

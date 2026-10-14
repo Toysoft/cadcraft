@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::helpers::lwpoly;
 use super::*;
-use crate::{Accept, EngineError, Input, Interactive, Picker, Prompt, Result, Session, Step};
+use crate::{Accept, EngineError, Input, Interactive, Picker, PointInput, Prompt, Result, Session, Step};
 
 mod assoc;
 mod edit;
@@ -676,14 +676,15 @@ impl Interactive for HatchM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if let Some(a) = self.asking.take() {
             match &i {
-                Input::Point(p) if a == HatchAsk::Origin => self.set_origin(s, Some(*p), OriginMode::Current)?,
+                Input::Point(pi) if a == HatchAsk::Origin => self.set_origin(s, Some(pi.point()), OriginMode::Current)?,
                 Input::Text(t) | Input::Keyword(t) => self.answer(s, a, t)?,
                 _ => {}
             }
             return Ok(Step::Continue);
         }
         match i {
-            Input::Point(p) if !self.selecting => {
+            Input::Point(pi) if !self.selecting => {
+                let p = pi.point();
                 match loops_at(s, p) {
                     Ok(l) => {
                         s.echo(format!("Analyzing the selected data... {} loop(s)", l.len()));
@@ -756,7 +757,8 @@ impl Interactive for BoundaryM {
     }
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 match boundary_at(s, p) {
                     Ok(hs) => s.echo(format!("BOUNDARY created {} polyline(s)", hs.len())),
                     Err(e) => s.echo(e.to_string()),
@@ -827,7 +829,7 @@ mod tests {
         s.input(Input::Keyword("Pattern".into())).unwrap();
         assert!(s.current_prompt().unwrap().picker.is_some());
         s.input(Input::Text("BRICK".into())).unwrap();
-        s.input(Input::Point(Vec2::new(5.0, 5.0))).unwrap();
+        s.input(Input::Point(PointInput::Picked(Vec2::new(5.0, 5.0)))).unwrap();
         s.input(Input::Enter).unwrap();
         assert_eq!(only_hatch(&s).1.pattern, "BRICK");
         // An unknown name keeps the pattern.

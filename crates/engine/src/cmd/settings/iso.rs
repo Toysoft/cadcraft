@@ -165,7 +165,8 @@ impl IsoCircle {
     pub(crate) fn input(&mut self, s: &Session, i: Input) -> Result<Option<Ellipse>> {
         let plane = s.settings.isoplane;
         let Some(c) = self.center else {
-            if let Input::Point(p) = i {
+            if let Input::Point(pi) = i {
+                let p = pi.point();
                 self.center = Some(p);
             }
             return Ok(None);
@@ -175,7 +176,10 @@ impl IsoCircle {
                 self.diameter = true;
                 return Ok(None);
             }
-            Input::Point(p) => iso::iso_radius(plane, c, p).map(|r| if self.diameter { r / 2.0 } else { r }),
+            Input::Point(pi) => {
+                let p = pi.point();
+                iso::iso_radius(plane, c, p).map(|r| if self.diameter { r / 2.0 } else { r })
+            }
             Input::Text(t) => {
                 let d = crate::units::parse_distance(&t).ok_or_else(|| EngineError::Other("Requires a distance.".into()))?;
                 Some(if self.diameter { d / 2.0 } else { d })

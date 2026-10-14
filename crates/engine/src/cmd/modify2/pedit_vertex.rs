@@ -121,7 +121,10 @@ impl PeditM {
     pub(super) fn tangent_input(&mut self, s: &mut Session, i: &Input) -> Result<()> {
         let v = self.poly(s).and_then(|p| p.vertices.get(self.vertex).map(|v| v.p)).ok_or_else(|| other("No vertex."))?;
         let d = match i {
-            Input::Point(p) => *p - v,
+            Input::Point(pi) => {
+                let p = pi.point();
+                p - v
+            }
             Input::Text(t) => Vec2::from_angle(s.angle_settings().direction(t).ok_or_else(|| other("Requires a point or an angle."))?),
             Input::Enter => {
                 self.phase = PPhase::Vertex;

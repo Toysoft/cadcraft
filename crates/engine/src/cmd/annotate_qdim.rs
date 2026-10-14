@@ -310,7 +310,8 @@ impl Interactive for QDimM {
             };
         }
         match (self.ask, i) {
-            (Ask::Position, Input::Point(at)) => {
+            (Ask::Position, Input::Point(pi)) => {
+                let at = pi.point();
                 let r = run(s, &self.params(at))?;
                 let n = r.get("handles").and_then(Value::as_array).map_or(0, Vec::len);
                 s.echo(format!("{n} dimension(s) created."));
@@ -327,15 +328,17 @@ impl Interactive for QDimM {
                     }
                 }
             },
-            (Ask::Datum, Input::Point(p)) => {
+            (Ask::Datum, Input::Point(pi)) => {
+                let p = pi.point();
                 self.datum = Some(p);
                 self.ask = Ask::Position;
             }
-            (Ask::Remove, Input::Point(p)) => {
+            (Ask::Remove, Input::Point(pi)) => {
+                let p = pi.point();
                 self.tol = self.tol.max(s.pixel_size() * s.settings.pickbox.max(1.0));
                 self.remove.push(p);
             }
-            (Ask::Add, Input::Point(p)) => self.add.push(p),
+            (Ask::Add, Input::Point(pi)) => self.add.push(pi.point()),
             (Ask::Remove, Input::Keyword(k)) if k == "Add" => self.ask = Ask::Add,
             (Ask::Add, Input::Keyword(k)) if k == "Remove" => self.ask = Ask::Remove,
             (Ask::Remove | Ask::Add | Ask::Settings, Input::Keyword(_) | Input::Enter) => self.ask = Ask::Position,

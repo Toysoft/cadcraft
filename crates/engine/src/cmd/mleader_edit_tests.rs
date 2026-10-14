@@ -2,7 +2,7 @@ use cadcraft_doc::{EntityKind, Handle, MLeader};
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
 
-use crate::{Input, Session};
+use crate::{Input, PointInput, Session};
 
 fn hd(v: &Value) -> Handle {
     Handle::parse_hex(v["handle"].as_str().unwrap_or("0")).unwrap_or(Handle(0))
@@ -34,13 +34,13 @@ fn edit_adds_and_removes_leaders() {
     // Interactive: Add Leader then Remove Leader, one undo step each.
     s.start("mleaderedit.add").unwrap();
     s.input(Input::Pick(vec![h])).unwrap();
-    s.input(Input::Point(Vec2::new(-3.0, 2.0))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(-3.0, 2.0)))).unwrap();
     s.input(Input::Enter).unwrap();
     assert!(s.running.is_none());
     assert_eq!(ml(&s, h).leaders.len(), 3);
     s.start("mleaderedit.remove").unwrap();
     s.input(Input::Pick(vec![h])).unwrap();
-    s.input(Input::Point(Vec2::new(-3.0, 2.0))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(-3.0, 2.0)))).unwrap();
     s.input(Input::Enter).unwrap();
     assert_eq!(ml(&s, h).leaders.len(), 2);
 }
@@ -75,8 +75,8 @@ fn align_distribute_parallel_and_spacing() {
     s.input(Input::Pick(vec![b, c])).unwrap();
     s.input(Input::Enter).unwrap();
     s.input(Input::Pick(vec![a])).unwrap();
-    s.input(Input::Point(Vec2::new(0.0, 0.0))).unwrap();
-    s.input(Input::Point(Vec2::new(0.0, 1.0))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(0.0, 0.0)))).unwrap();
+    s.input(Input::Point(PointInput::Picked(Vec2::new(0.0, 1.0)))).unwrap();
     assert!(s.running.is_none());
     assert!((ml(&s, b).landing.x - ml(&s, a).landing.x).abs() < 1e-9);
 }

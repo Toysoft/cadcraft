@@ -338,7 +338,8 @@ impl Interactive for ViewM {
                 report(s, |s| save(s, &name, None, snapshot))
             }
             Stage::WindowFirst => match i {
-                Input::Point(a) => {
+                Input::Point(pi) => {
+                    let a = pi.point();
                     self.stage = Stage::WindowSecond(a);
                     Ok(Step::Continue)
                 }
@@ -346,7 +347,8 @@ impl Interactive for ViewM {
                 _ => Err(EngineError::Other("Requires a point.".into())),
             },
             Stage::WindowSecond(a) => match i {
-                Input::Point(b) => {
+                Input::Point(pi) => {
+                    let b = pi.point();
                     let snapshot = s.settings.view_layer_snapshot;
                     let name = std::mem::take(&mut self.name);
                     report(s, |s| save(s, &name, Some(Bounds2::new(a, b)), snapshot))

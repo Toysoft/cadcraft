@@ -193,7 +193,8 @@ impl Interactive for MlineM {
                 }
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if self.pts.last().is_none_or(|l| !l.near(p, 1e-12)) && self.pts.len() < MAX_GEN {
                     self.pts.push(p);
                 }
@@ -769,7 +770,8 @@ impl Interactive for MleditM {
                 self.first = None;
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let pick = || -> Result<Handle> {
                     let h = curves::pick_at(s, p).ok_or_else(|| other("Select a multiline."))?;
                     mline_of(s, h).map(|_| h)

@@ -81,7 +81,10 @@ impl Interactive for TEditM {
             };
         }
         match i {
-            Input::Point(p) => self.run(s, json!({ "at": [p.x, p.y] })),
+            Input::Point(pi) => {
+                let p = pi.point();
+                self.run(s, json!({ "at": [p.x, p.y] }))
+            }
             Input::Keyword(k) if k == "Angle" => {
                 self.asking_angle = true;
                 Ok(Step::Continue)

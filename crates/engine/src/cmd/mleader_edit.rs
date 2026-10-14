@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 use super::helpers::v3;
 use super::machines::{SelOutcome, SelectPhase};
 use super::*;
-use crate::{Accept, Input, Interactive, Prompt, Result, Session, Step};
+use crate::{Accept, Input, Interactive, PointInput, Prompt, Result, Session, Step};
 
 /// Most arrowheads added by one call, and most multileaders aligned / collected by one call.
 const MAX_ITEMS: usize = 10_000;
@@ -243,7 +243,8 @@ impl Interactive for EditM {
                 self.remove = kw_is(&k, "Remove leaders");
                 Ok(Step::Continue)
             }
-            Input::Point(pt) => {
+            Input::Point(pi) => {
+                let pt = pi.point();
                 if self.remove {
                     let Some(m) = get_mleader(s, h) else { return Ok(Step::Cancel) };
                     match nearest_leader(&m, pt) {
@@ -557,7 +558,7 @@ impl Interactive for AlignM {
             }
             return Ok(Step::Continue);
         }
-        let Input::Point(pt) = i else { return Ok(Step::Continue) };
+        let Input::Point(PointInput::Picked(pt)) = i else { return Ok(Step::Continue) };
         if self.mode() == Spacing::Parallel {
             return self.finish(s, None);
         }
@@ -764,7 +765,8 @@ impl Interactive for CollectM {
                 }
                 Ok(Step::Continue)
             }
-            Input::Point(at) => {
+            Input::Point(pi) => {
+                let at = pi.point();
                 let r = collect(s, &self.picked, at, self.layout, None)?;
                 s.set_selection(Vec::new());
                 s.echo(format!("{} multileader(s) collected.", r.get("collected").and_then(Value::as_u64).unwrap_or(0)));

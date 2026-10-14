@@ -434,7 +434,8 @@ impl Interactive for TrimM {
             }
             Stage::Fence(mut pts) => {
                 match i {
-                    Input::Point(p) => {
+                    Input::Point(pi) => {
+                        let p = pi.point();
                         pts.push(p);
                         self.stage = Stage::Fence(pts);
                     }
@@ -457,8 +458,9 @@ impl Interactive for TrimM {
             }
             Stage::Crossing(first) => {
                 match (first, i) {
-                    (None, Input::Point(p)) => self.stage = Stage::Crossing(Some(p)),
-                    (Some(a), Input::Point(b)) => {
+                    (None, Input::Point(pi)) => self.stage = Stage::Crossing(Some(pi.point())),
+                    (Some(a), Input::Point(pi)) => {
+                        let b = pi.point();
                         self.stage = Stage::Pick;
                         let r = self.step(s, |m, s| crossing(s, a, b, extending, m.edges(quick, implied), quick).map(|_| ()));
                         if let Err(e) = r {
@@ -471,7 +473,8 @@ impl Interactive for TrimM {
                 Ok(Step::Continue)
             }
             Stage::Pick => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let ap = s.pixel_size() * s.settings.pickbox.max(1.0) * 1.5;
                     let space = s.space();
                     let Some(h) = crate::select::pick(s.doc()?, &space, p, ap) else {

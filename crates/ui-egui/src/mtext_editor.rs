@@ -480,8 +480,8 @@ mod tests {
         assert!(ctx.data_mut(|d| d.get_temp::<State>(state_id())).is_none());
         app.start("mtext");
         assert!(app.session.editing_mtext().is_none(), "no box yet");
-        app.session.input(cadcraft_engine::Input::Point(cadcraft_geom::Vec2::new(1.0, 1.0))).unwrap();
-        app.session.input(cadcraft_engine::Input::Point(cadcraft_geom::Vec2::new(6.0, 0.0))).unwrap();
+        app.session.input(cadcraft_engine::Input::Point(PointInput::Picked(cadcraft_geom::Vec2::new(1.0, 1.0)))).unwrap();
+        app.session.input(cadcraft_engine::Input::Point(PointInput::Picked(cadcraft_geom::Vec2::new(6.0, 0.0)))).unwrap();
         let m = app.session.editing_mtext().expect("box known");
         assert!((m.width - 5.0).abs() < 1e-9, "{}", m.width);
         frame(&mut app);

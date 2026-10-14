@@ -83,7 +83,8 @@ impl SplineAsk {
                 let start = matches!(self, SplineAsk::StartTangent);
                 let from = if start { pts.first() } else { pts.last() }.copied().unwrap_or_default();
                 let dir = match i {
-                    Input::Point(p) => {
+                    Input::Point(pi) => {
+                        let p = pi.point();
                         let d = p - from;
                         if d.len() < 1e-12 {
                             return Err(other("The tangent point must differ from the fit point."));

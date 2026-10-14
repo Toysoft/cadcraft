@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
-use cadcraft_engine::Input;
+use cadcraft_engine::{Input, PointInput};
 use cadcraft_geom::Vec2;
 use serde_json::{Value, json};
 
@@ -374,7 +374,7 @@ pub fn handle(app: &mut CadApp, ctx: &egui::Context, req: &ControlRequest) -> Ou
             }
             let r = match s("button").unwrap_or("left") {
                 "right" => app.session.input(Input::Enter),
-                _ if app.session.prompting() => app.session.input(Input::Point(wp)),
+                _ if app.session.prompting() => app.session.input(Input::Point(PointInput::Picked(wp))),
                 _ => app.session.idle_click(wp, p.get("shift").and_then(Value::as_bool).unwrap_or(false)),
             };
             match r {

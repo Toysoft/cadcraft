@@ -14,7 +14,7 @@ use cadcraft_doc::EntityKind;
 use cadcraft_geom::Vec2;
 
 use crate::cmd::Factory;
-use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
+use crate::{Accept, EngineError, Input, Interactive, PointInput, Prompt, Result, Session, Step};
 
 pub(crate) struct Guarded {
     inner: Box<dyn Interactive>,
@@ -186,14 +186,14 @@ mod tests {
         assert!(s.preview(at).is_empty());
         assert!(s.preview(at).is_empty(), "not called again");
         assert!(s.current_prompt().unwrap().message.contains("Internal error"));
-        assert!(matches!(s.input(Input::Point(at)), Err(EngineError::Internal(_, m)) if m == "panic in preview"));
+        assert!(matches!(s.input(Input::Point(PointInput::Picked(at))), Err(EngineError::Internal(_, m)) if m == "panic in preview"));
         assert!(s.running.is_none());
         assert_eq!(points(&s), 0, "the drawing is restored");
 
         // Input (already guarded by the session; the wrapper agrees).
         let mut s = Session::new();
         start(&mut s, "input").unwrap();
-        assert!(matches!(s.input(Input::Point(Vec2::ZERO)), Err(EngineError::Internal(..))));
+        assert!(matches!(s.input(Input::Point(PointInput::Picked(Vec2::ZERO))), Err(EngineError::Internal(..))));
         assert!(s.running.is_none());
         assert_eq!(points(&s), 0);
     }

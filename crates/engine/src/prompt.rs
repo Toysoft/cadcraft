@@ -59,16 +59,6 @@ pub struct Prompt {
     pub raw: bool,
 }
 
-/// Parse `@distance<angle` (relative polar), returning `(distance, angle in radians)`.
-/// Returns `None` for any other form.
-pub fn parse_polar_text(text: &str, angles: &crate::units::AngleSettings) -> Option<(f64, f64)> {
-    let body = text.trim().strip_prefix('@')?; // relative form only
-    let (d, a) = body.split_once('<')?;
-    let dist = d.trim().parse::<f64>().ok()?;
-    let angle = angles.amount(a.trim())?;
-    (dist.is_finite() && angle.is_finite()).then_some((dist, angle))
-}
-
 /// A visual chooser for a prompt ([`Prompt::picker`]).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,11 +161,45 @@ impl Prompt {
     }
 }
 
+/// A point the user supplied, and the form they used.
+///
+/// Commands that only need the coordinate call [`PointInput::point`].
+/// Commands that can use the semantic (direction, distance, snap type)
+/// match on the variant.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum PointInput {
+    /// `x,y` or `x,y,z` typed at the command line.
+    Absolute(Vec2),
+    /// `@dx,dy`.
+    RelativeCartesian { at: Vec2, delta: Vec2 },
+    /// `@d<a`.
+    RelativePolar { at: Vec2, dist: f64, angle: f64 },
+    /// Bare distance along the current cursor direction (direct distance entry).
+    DirectDistance { base: Vec2, dist: f64, dir: Vec2 },
+    /// A pick on the canvas.
+    Picked(Vec2),
+    /// A resolved object snap.
+    Snapped { at: Vec2, mode: u32 },
+}
+
+impl PointInput {
+    /// The coordinate, for commands that don't care how the user typed it.
+    pub fn point(&self) -> Vec2 {
+        match self {
+            PointInput::Absolute(p) | PointInput::Picked(p) => *p,
+            PointInput::RelativeCartesian { at, delta } => *at + *delta,
+            PointInput::RelativePolar { at, dist, angle } => *at + Vec2::new(angle.cos(), angle.sin()) * *dist,
+            PointInput::DirectDistance { base, dist, dir } => *base + *dir * *dist,
+            PointInput::Snapped { at, .. } => *at,
+        }
+    }
+}
+
 /// An input to the active command.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "camelCase")]
 pub enum Input {
-    Point(Vec2),
+    Point(PointInput),
     /// A deferred tangent/perpendicular snap, only sent to prompts that accept it
     /// (`Prompt.deferred`).
     Deferred(crate::snap::Deferred),
@@ -242,10 +266,9 @@ pub struct Drag {
 pub fn parse_point(text: &str, last: Vec2) -> Option<Vec2> {
     parse_point_with(text, last, &crate::units::AngleSettings::default())
 }
-
-/// `parse_point` with polar angles read per `angles` (AUNITS, ANGBASE, ANGDIR); `d<<a` and
-/// `d<<<a` measure from +X counterclockwise (in degrees and in AUNITS).
-pub fn parse_point_with(text: &str, last: Vec2, angles: &crate::units::AngleSettings) -> Option<Vec2> {
+/// Parse a typed point into its [`PointInput`] form, preserving the semantics
+/// the user typed (`@d<a`, `@dx,dy`, `x,y`, ...).
+pub fn parse_point_input(text: &str, last: Vec2, angles: &crate::units::AngleSettings) -> Option<PointInput> {
     let t = text.trim();
     if t.is_empty() {
         return None;
@@ -260,13 +283,12 @@ pub fn parse_point_with(text: &str, last: Vec2, angles: &crate::units::AngleSett
         (false, t)
     };
     if rel && body.is_empty() {
-        return Some(last);
+        return Some(PointInput::Absolute(last));
     }
-    let p = if let Some((d, a)) = body.split_once('<') {
+    let pi = if let Some((d, a)) = body.split_once('<') {
         let dist = crate::units::parse_distance(d)?;
-        // `d<<a` / `d<<<a`: the override prefixes keep their `<<` / `<<<`.
         let ang = if a.starts_with('<') { angles.direction(&format!("<{a}"))? } else { angles.direction(a)? };
-        Vec2::from_angle(ang) * dist
+        if rel { PointInput::RelativePolar { at: last, dist, angle: ang } } else { PointInput::Absolute(Vec2::from_angle(ang) * dist) }
     } else {
         let parts: Vec<&str> = body.split(',').collect();
         if parts.len() < 2 || parts.len() > 3 {
@@ -277,10 +299,15 @@ pub fn parse_point_with(text: &str, last: Vec2, angles: &crate::units::AngleSett
         if let Some(z) = parts.get(2) {
             crate::units::parse_distance(z)?;
         }
-        Vec2::new(x, y)
+        let d = Vec2::new(x, y);
+        if rel { PointInput::RelativeCartesian { at: last, delta: d } } else { PointInput::Absolute(d) }
     };
-    let r = if rel { last + p } else { p };
-    r.is_finite().then_some(r)
+    pi.point().is_finite().then_some(pi)
+}
+/// `parse_point` with polar angles read per `angles` (AUNITS, ANGBASE, ANGDIR); `d<<a` and
+/// `d<<<a` measure from +X counterclockwise (in degrees and in AUNITS).
+pub fn parse_point_with(text: &str, last: Vec2, angles: &crate::units::AngleSettings) -> Option<Vec2> {
+    parse_point_input(text, last, angles).map(|pi| pi.point())
 }
 
 #[cfg(test)]

@@ -130,7 +130,8 @@ impl Interactive for BreakM {
                 }
                 Ok(Step::Continue)
             }
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.table = table_at(s, p);
                 if self.table.is_none() {
                     s.echo("No table there.");

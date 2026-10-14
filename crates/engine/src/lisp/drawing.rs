@@ -16,7 +16,7 @@ use super::LispError;
 use super::builtins::args_err;
 use super::eval::{Ctx, Flow, Need};
 use super::value::{PickSet, Value, to_text};
-use crate::{Input, Session};
+use crate::{Input, PointInput, Session};
 
 fn arity(a: &[Value], min: usize, max: usize) -> Result<(), LispError> {
     if a.len() < min {
@@ -111,7 +111,7 @@ pub fn command(ctx: &mut Ctx<'_>, a: Vec<Value>) -> Result<Flow, LispError> {
             Value::PickSet(p) => feed(ctx.s, Input::Pick(items(p))),
             Value::Cons(_) => {
                 if let Some(p) = arg.as_point() {
-                    feed(ctx.s, Input::Point(Vec2::new(p[0], p[1])));
+                    feed(ctx.s, Input::Point(PointInput::Picked(Vec2::new(p[0], p[1]))));
                 } else if let Value::Ename(h) = arg.car() {
                     // An `entsel` result: (ename point).
                     feed(ctx.s, Input::Pick(vec![h]));

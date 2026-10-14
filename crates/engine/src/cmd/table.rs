@@ -491,8 +491,9 @@ impl Interactive for TableM {
                 }
                 Ok(Step::Continue)
             }
-            (Some(_), Some(_), Input::Point(p)) => {
-                let t = self.table(*p);
+            (Some(_), Some(_), Input::Point(pi)) => {
+                let p = pi.point();
+                let t = self.table(p);
                 s.add_entity(EntityKind::Table(t))?;
                 Ok(Step::Done)
             }

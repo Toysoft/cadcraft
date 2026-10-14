@@ -512,7 +512,8 @@ impl Interactive for PeditM {
         };
         match self.phase {
             PPhase::Select => match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                     let k = curves::entity(s, h)?.kind;
                     self.h = Some(h);
@@ -644,7 +645,8 @@ impl Interactive for PeditM {
                 Ok(Step::Continue)
             }
             PPhase::VMove | PPhase::VInsert => {
-                if let Input::Point(p) = i {
+                if let Input::Point(pi) = i {
+                    let p = pi.point();
                     let action = if self.phase == PPhase::VMove { "move" } else { "insert" };
                     self.apply(s, "vertex", json!({ "action": action, "index": self.vertex, "to": [p.x, p.y] }))?;
                     if action == "insert" {
@@ -909,8 +911,9 @@ impl Interactive for LengthenM {
         let au = s.angle_settings();
         let ang = |i: &Input| -> Option<f64> { if let Input::Text(t) = i { au.amount(t) } else { None } };
         match (self.phase, &i) {
-            (LPhase::Main, Input::Point(p)) => {
-                let h = curves::pick_at(s, *p).ok_or_else(|| other("*Invalid selection*"))?;
+            (LPhase::Main, Input::Point(pi)) => {
+                let p = pi.point();
+                let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                 let k = curves::entity(s, h)?.kind;
                 match measure_len(&k) {
                     Some((l, Some(a))) => s.echo(format!("Current length: {l:.4}, included angle: {:.0}", a.to_degrees())),
@@ -967,22 +970,24 @@ impl Interactive for LengthenM {
                 self.phase = LPhase::Change;
                 Ok(Step::Continue)
             }
-            (LPhase::Change, Input::Point(p)) => {
-                let h = curves::pick_at(s, *p).ok_or_else(|| other("*Invalid selection*"))?;
+            (LPhase::Change, Input::Point(pi)) => {
+                let p = pi.point();
+                let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                 if self.dynamic {
-                    self.phase = LPhase::DynEnd(h, *p);
+                    self.phase = LPhase::DynEnd(h, p);
                     return Ok(Step::Continue);
                 }
                 let mode = self.mode.ok_or_else(|| other("No lengthen mode."))?;
                 let k = curves::entity(s, h)?.kind;
-                let nk = lengthen_kind(&k, Some(*p), mode)?;
+                let nk = lengthen_kind(&k, Some(p), mode)?;
                 set_kind(s, h, nk)?;
                 self.history.push((h, k));
                 Ok(Step::Continue)
             }
-            (LPhase::DynEnd(h, pick), Input::Point(p)) => {
+            (LPhase::DynEnd(h, pick), Input::Point(pi)) => {
+                let p = pi.point();
                 let k = curves::entity(s, h)?.kind;
-                let nk = lengthen_kind(&k, Some(pick), LenMode::To(*p))?;
+                let nk = lengthen_kind(&k, Some(pick), LenMode::To(p))?;
                 set_kind(s, h, nk)?;
                 self.history.push((h, k));
                 self.phase = LPhase::Change;
@@ -1098,7 +1103,8 @@ impl Interactive for AlignM {
             return self.finish(s, yes);
         }
         match i {
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 if self.pts.len() < 4 {
                     self.pts.push(p);
                 } else {
@@ -1225,7 +1231,8 @@ impl Interactive for BlendM {
                 self.asking = true;
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                 match self.first {
                     None => {
@@ -1618,7 +1625,8 @@ impl Interactive for NcopyM {
     fn input(&mut self, s: &mut Session, i: Input) -> Result<Step> {
         if !self.selecting_done {
             return match i {
-                Input::Point(p) => {
+                Input::Point(pi) => {
+                    let p = pi.point();
                     let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                     let leaf = nearest_leaf(leaves_of(s, h)?, p).ok_or_else(|| other("Nothing nested there."))?;
                     s.echo(format!("Nested object: {}", leaf.1.type_name()));
@@ -1642,7 +1650,8 @@ impl Interactive for NcopyM {
             };
         }
         match (self.base, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 self.base = Some(p);
                 Ok(Step::Continue)
             }
@@ -1650,7 +1659,8 @@ impl Interactive for NcopyM {
                 place_copies(s, &self.items, Vec2::ZERO)?;
                 Ok(Step::Done)
             }
-            (Some(b), Input::Point(p)) => {
+            (Some(b), Input::Point(pi)) => {
+                let p = pi.point();
                 place_copies(s, &self.items, p - b)?;
                 Ok(Step::Done)
             }
@@ -2130,7 +2140,8 @@ impl Interactive for PathArrayM {
             };
         }
         match (self.path, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                 Chain::of(&curves::entity(s, h)?.kind).ok_or_else(|| other("Select a curve as the path."))?;
                 self.path = Some(h);
@@ -2231,7 +2242,8 @@ impl Interactive for TextEditM {
             return Ok(Step::Continue);
         }
         match (&self.h, i) {
-            (None, Input::Point(p)) => {
+            (None, Input::Point(pi)) => {
+                let p = pi.point();
                 let h = curves::pick_at(s, p).ok_or_else(|| other("*Invalid selection*"))?;
                 let old = text_of(&curves::entity(s, h)?.kind).ok_or_else(|| other("Select a text, mtext, attribute definition or dimension."))?;
                 self.h = Some((h, old));

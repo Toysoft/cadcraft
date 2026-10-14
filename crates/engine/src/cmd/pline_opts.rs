@@ -140,7 +140,10 @@ impl PlineAsk {
         // A typed or picked size (distance from the last vertex).
         let size = |i: &Input| -> Option<f64> {
             match i {
-                Input::Point(p) => Some(st.dist(*p)),
+                Input::Point(pi) => {
+                    let p = pi.point();
+                    Some(st.dist(p))
+                }
                 Input::Text(t) => number(t),
                 _ => None,
             }
@@ -166,13 +169,15 @@ impl PlineAsk {
             (PlineAsk::CenterEnd(c), Input::Keyword(k)) if k == "Angle" => Outcome::Ask(PlineAsk::CenterAngle(c)),
             (PlineAsk::CenterEnd(c), Input::Keyword(k)) if k == "Length" => Outcome::Ask(PlineAsk::CenterLength(c)),
             (PlineAsk::RadiusEnd(r), Input::Keyword(k)) if k == "Angle" => Outcome::Ask(PlineAsk::RadiusAngle(r)),
-            (PlineAsk::Center, Input::Point(c)) => {
+            (PlineAsk::Center, Input::Point(pi)) => {
+                let c = pi.point();
                 if c.near(st, 1e-12) {
                     return Err(invalid());
                 }
                 Outcome::Ask(PlineAsk::CenterEnd(c))
             }
-            (PlineAsk::Second, Input::Point(m)) => {
+            (PlineAsk::Second, Input::Point(pi)) => {
+                let m = pi.point();
                 if m.near(st, 1e-12) {
                     return Err(invalid());
                 }
@@ -180,7 +185,10 @@ impl PlineAsk {
             }
             (PlineAsk::Direction, i) => {
                 let d = match i {
-                    Input::Point(p) => p - st,
+                    Input::Point(pi) => {
+                        let p = pi.point();
+                        p - st
+                    }
                     Input::Text(t) => Vec2::from_angle(angles.direction(&t).ok_or_else(|| other("Requires an angle."))?),
                     _ => return Err(other("Requires a direction.")),
                 };
@@ -204,7 +212,7 @@ impl PlineAsk {
             }
             (PlineAsk::Chord(a, r), i) => {
                 let dir = match i {
-                    Input::Point(p) if !p.near(st, 1e-12) => st.angle_to(p),
+                    Input::Point(pi) if !pi.point().near(st, 1e-12) => st.angle_to(pi.point()),
                     Input::Text(t) => angles.direction(&t).ok_or_else(|| other("Requires an angle."))?,
                     Input::Enter => chord_default(tangent, a),
                     _ => return Err(other("Requires a direction.")),
@@ -215,7 +223,7 @@ impl PlineAsk {
                 let l = size(&i).filter(|l| l.is_finite() && *l > 1e-12).ok_or_else(|| other("Requires a positive length."))?;
                 Outcome::Segment(st + tangent * l, 0.0)
             }
-            (_, Input::Point(p)) => segment(self.segment_at(st, tangent, p))?,
+            (_, Input::Point(pi)) => segment(self.segment_at(st, tangent, pi.point()))?,
             _ => return Err(other("Point or option keyword required.")),
         })
     }

@@ -458,7 +458,8 @@ impl Interactive for GcM {
                 self.two_points = true;
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let space = s.space();
                 let Some(h) = crate::select::pick(s.doc()?, &space, p, aperture(s)) else {
                     s.echo("*Invalid selection*");
@@ -702,7 +703,8 @@ impl Interactive for DcM {
                 self.points = true;
                 Ok(Step::Continue)
             }
-            Input::Point(p) => {
+            Input::Point(pi) => {
+                let p = pi.point();
                 let space = s.space();
                 let ap = aperture(s);
                 let d = s.doc()?;
