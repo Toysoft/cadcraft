@@ -1,6 +1,6 @@
 # File-format parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and written) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (R2000 dimension styles: AutoCAD's jog angle xdata read and written) · **Target:** Autodesk AutoCAD 2027
 
 Every format AutoCAD 2027 reads or writes, with CADCraft's support, fidelity and tests. Work
 items are in [gaps.md](gaps.md#file-formats); the weighted score feeds
@@ -87,7 +87,7 @@ early (#175), but the throughput problem remains. **DWG ≈ 30% read, ≈ 15% wr
 | REGION | other programs' REGIONs (ACIS data) kept as Unknown | our regions are written as closed polylines tagged with CADCraft xdata (#510; ACIS has no public spec) | |
 | 3DSOLID, BODY, SURFACE, MESH, SHAPE, UNDERLAY, OLE2FRAME, LIGHT, CAMERA, SECTION, POINTCLOUD, proxy entities | kept as Unknown (raw tags) | written back as read, with their CLASS records (#528); **dropped by DWG save** (acadrust) | only their layer follows edits |
 | Header variables | all read | 36 written | AutoCAD writes about 280 |
-| Tables: LAYER (+ transparency, description), LTYPE, STYLE, DIMSTYLE, BLOCK_RECORD | yes | yes | |
+| Tables: LAYER (+ transparency, description), LTYPE, STYLE, DIMSTYLE, BLOCK_RECORD | yes | yes | DIMSTYLE jog angle (DIMJOGANG, group 50) in degrees, as AutoCAD and the DWG bridge read it; radians from CADCraft 0.7.0 and earlier still read; xdata keeps radians. R2000: also AutoCAD's own jog angle xdata (`ACAD_DSTYLE_DIMJOGGED_JOGANGLE_SYMBOL`), read and written |
 | Tables: VPORT, VIEW, UCS, APPID | yes | yes: saved viewport configurations (#504), named views, UCSs | UCS elevation lost |
 | Objects: LAYOUT, DICTIONARY, XRECORD, TABLESTYLE, DIMASSOC | yes | yes | |
 | Objects: GROUP, MLINESTYLE, MLEADERSTYLE, IMAGEDEF, SCALE | yes | yes (groups #417, scale list #468) | |
@@ -135,6 +135,8 @@ our output in AutoCAD black-box.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | DXF R2000: a dimension style's jog angle is read from and written to AutoCAD's own xdata (`ACAD_DSTYLE_DIMJOGGED_JOGANGLE_SYMBOL`, `1070 384` then the angle in radians, as AutoCAD LT 2026 saves R2000), so R2000 files from AutoCAD keep it. Where a style has the angle more than once, the DIMSTYLE groups win, then AutoCAD's xdata, then CADCraft's `DIMVARS`: another program's save leaves CADCraft's copy as it was |
+| 2026-10-13 | minor | DXF: DIMSTYLE group 50 (DIMJOGANG) written in degrees. AutoCAD LT 2026 reads it as degrees and took CADCraft's 45° (written in radians) as 0.785°. DWG open now keeps a style's jog angle: the bridge (acadrust 0.6.4) gives it in degrees, which CADCraft read as radians and dropped. Radians from CADCraft 0.7.0 and earlier still read, since 5°–90° can't be mistaken across the units; DSTYLE overrides, R2000 `DIMVARS` xdata and `$DIMJOGANG` stay radians |
 | 2026-10-12 | minor | PDF output: object transparency plotted as PDF alpha (`/ExtGState` `/ca` `/CA`) when the page setup's or the plot's "Plot transparency" is on; PNG plots blend it, SVG uses `opacity`; plots without it are unchanged byte for byte |
 | 2026-10-12 | minor | DXF/DWG save: the Model layout's plot settings are written as CADCraft plots model space, drawing extents scaled to fit (PLOTSETTINGS 74 = 1, 75 = 0), instead of plot type 5 "Layout information", which other programs' Plot dialogs can't use for model space |
 | 2026-10-12 | minor | VIEWPORT frozen layers also written and read as AutoCAD's group 341 layer handles, so third-party viewers honour per-viewport freezing in DXF (DWG converter gap noted) |
