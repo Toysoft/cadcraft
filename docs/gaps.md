@@ -1,6 +1,6 @@
 # Where CADCraft falls short of AutoCAD
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and saved: F17 narrowed) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (3D mouse pans and zooms on Windows and Linux: H1 narrowed) · **Target:** Autodesk AutoCAD 2027
 
 Every known shortfall, one row each, ranked within each section by user impact. This is the work
 list: agents pick from here (top of a section first), and remove or update a row in the same PR
@@ -89,7 +89,7 @@ Detail: [hardware-parity.md](hardware-parity.md).
 
 | # | Gap | Est. |
 |---|---|---|
-| H1 | 3Dconnexion SpaceMouse (needs the device and 3D views) | 6–10 + human |
+| H1 | 3Dconnexion SpaceMouse: macOS, web (WebHID), orbit once 3D views exist; untested next to 3DxWare (Windows 2D pan/zoom tested, #650) | 4–6 + human |
 | H2 | Multi-monitor: floating palettes on other screens, per-monitor DPI (PR #110 for Windows 11 DPI) | 4–6 |
 | H3 | Plotters and system printers (PC3 devices) beyond PDF files | 6–10 |
 | H4 | Pen tablets / digitizer (TABLET) | 3–5 + human |
@@ -145,6 +145,7 @@ Detail: [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | 3D mouse pans and zooms on Windows and Linux over raw HID (#650), tested on a SpaceNavigator: H1 narrowed to macOS, the web, orbit and 3DxWare coexistence |
 | 2026-10-12 | minor | Object transparency (entity, ByLayer, ByBlock) is drawn: on screen (TRANSPARENCYDISPLAY, on by default), in PNG/SVG exports, and in plots when the page setup's "Plot transparency" is on (PDF alpha, PNG blending, SVG opacity; PLOTTRANSPARENCYOVERRIDE): F14 narrowed |
 | 2026-10-12 | minor | Hatch and Gradient dialog (HATCH, GRADIENT; HPDLGMODE) and Hatch Edit dialog (HATCHEDIT, right-click, double-click a hatch): F13 narrowed to Preview, Inherit Properties and boundary add/remove in edit mode |
 | 2026-10-12 | minor | A bare system variable name typed at the command line (ORTHOMODE, GRIDMODE…) runs SETVAR on that variable, as in AutoCAD; U10 narrowed |

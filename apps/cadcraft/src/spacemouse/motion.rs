@@ -7,6 +7,10 @@ const DEADZONE: f64 = 0.04;
 const REST_LIMIT: f64 = 60.0;
 const REST_RANGE: f64 = 10.0;
 const CALIBRATION_TIME: Duration = Duration::from_millis(400);
+/// Some devices (a SpaceNavigator, 046d:c626) send nothing while the cap rests and report
+/// exact zeros once it moves again; a deflected cap streams at 125 reports/sec. Silence this
+/// long therefore means rest at zero, and calibration must not wait for resting reports.
+const QUIET_TIME: Duration = Duration::from_millis(300);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Report {
@@ -96,6 +100,8 @@ pub struct Filter {
     parts: u8,
     seen: [Option<Instant>; 2],
     idle_since: Option<Instant>,
+    /// The last axis report, or the first silent read after (re)starting.
+    heard: Option<Instant>,
 }
 
 impl Filter {
@@ -107,7 +113,18 @@ impl Filter {
         *self = Self::default();
     }
 
+    /// A read that returned no report. Silence for [`QUIET_TIME`] calibrates to zero.
+    pub fn quiet(&mut self, now: Instant) {
+        let since = *self.heard.get_or_insert(now);
+        if self.bias.is_none() && now.saturating_duration_since(since) >= QUIET_TIME {
+            self.raw = [0.0; 6];
+            self.bias = Some([0.0; 6]);
+            self.rest = Rest::default();
+        }
+    }
+
     pub fn update(&mut self, values: [i16; 6], mask: u8, now: Instant) -> Motion {
+        self.heard = Some(now);
         for (index, seen) in self.seen.iter_mut().enumerate() {
             if mask & (1 << index) != 0 {
                 *seen = Some(now);
@@ -152,7 +169,96 @@ impl Filter {
                 group.fill(0.0);
             }
         }
-        let [tx, ty, tz, _rx, _ry, rz] = axes;
-        Motion { pan: [tx, ty], zoom: (tz + rz).clamp(-1.0, 1.0) }
+        // The device's +Y points towards the user and the drawing's +Y away from them, so pushing
+        // the cap away must pan like pushing it right does. HID +Z points down; lifting the cap
+        // zooms in and pressing it zooms out, which felt the more natural of the two on a real
+        // device. Twist is unused: zooming on twist as well as on push/pull felt odd there.
+        let [tx, ty, tz, ..] = axes;
+        Motion { pan: [tx, -ty], zoom: -tz }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Filter, Report, decode};
+    use std::time::{Duration, Instant};
+
+    fn ms(n: u64) -> Duration {
+        Duration::from_millis(n)
+    }
+
+    /// A filter calibrated the way a SpaceNavigator does it: by staying silent.
+    fn silent(start: Instant) -> Filter {
+        let mut filter = Filter::default();
+        filter.quiet(start);
+        filter.quiet(start + ms(300));
+        assert!(filter.calibrated());
+        filter
+    }
+
+    #[test]
+    fn a_device_that_is_silent_at_rest_calibrates_to_zero() {
+        let start = Instant::now();
+        let mut filter = Filter::default();
+        filter.quiet(start);
+        filter.quiet(start + ms(250));
+        assert!(!filter.calibrated());
+        filter.quiet(start + ms(300));
+        assert!(filter.calibrated());
+        // Small values after the silence stay inside the deadzone: the bias is zero.
+        let motion = filter.update([8, 0, 0, 0, 0, 0], 1, start + ms(310));
+        assert!(!motion.active());
+    }
+
+    #[test]
+    fn reports_postpone_calibration_by_silence() {
+        let start = Instant::now();
+        let mut filter = Filter::default();
+        filter.quiet(start);
+        filter.update([200, 0, 0, 0, 0, 0], 1, start + ms(200));
+        filter.quiet(start + ms(400));
+        assert!(!filter.calibrated());
+        filter.quiet(start + ms(500));
+        assert!(filter.calibrated());
+        filter.recalibrate();
+        assert!(!filter.calibrated());
+    }
+
+    #[test]
+    fn pushing_the_cap_away_pans_up_and_right_pans_right() {
+        let start = Instant::now();
+        let mut filter = silent(start);
+        // HID +Y points towards the user.
+        let away = filter.update([0, -300, 0, 0, 0, 0], 1, start + ms(310));
+        assert!(away.pan[1] > 0.0 && away.pan[0] == 0.0);
+        let right = filter.update([300, 0, 0, 0, 0, 0], 1, start + ms(320));
+        assert!(right.pan[0] > 0.0 && right.pan[1] == 0.0);
+    }
+
+    #[test]
+    fn only_push_and_pull_zoom() {
+        let start = Instant::now();
+        let mut filter = silent(start);
+        filter.update([0; 6], 1, start + ms(310));
+        let twist = filter.update([0, 0, 0, 0, 0, 300], 2, start + ms(320));
+        assert!(!twist.active());
+        let press = filter.update([0, 0, 300, 0, 0, 300], 3, start + ms(330));
+        assert!(press.zoom < 0.0 && press.pan == [0.0, 0.0]);
+        let lift = filter.update([0, 0, -300, 0, 0, 0], 3, start + ms(340));
+        assert!(lift.zoom > 0.0);
+    }
+
+    #[test]
+    fn hostile_reports_do_not_panic() {
+        for bytes in [&[][..], &[1], &[1, 0, 0, 0, 0], &[2, 1], &[3], &[9, 1, 2, 3, 4, 5, 6]] {
+            assert_eq!(decode(bytes), None);
+        }
+        assert_eq!(decode(&[3, 2, 0, 0, 0, 0, 0]), Some(Report::Buttons(2)));
+        let mut filter = Filter::default();
+        let now = Instant::now();
+        filter.quiet(now);
+        filter.quiet(now + ms(300));
+        let extreme = filter.update([i16::MIN, i16::MAX, i16::MIN, i16::MAX, i16::MIN, i16::MAX], 3, now + ms(310));
+        assert!(extreme.pan.iter().all(|v| v.abs() <= 1.0) && extreme.zoom.abs() <= 1.0);
     }
 }

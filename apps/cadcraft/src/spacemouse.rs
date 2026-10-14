@@ -84,7 +84,8 @@ impl SpaceMouse {
         let allowed = app.spacemouse.settings.enabled
             && ctx.input(|i| i.focused)
             && !app.ui.start_tab
-            && app.ui.dialog.is_none()
+            // The 3D Mouse dialog itself must not block the device it is there to try out.
+            && app.ui.dialog.as_deref().is_none_or(|dialog| dialog == "spacemouse")
             && app.closing.is_none()
             && app.canvas.rect.is_some()
             && !egui::Popup::is_any_open(ctx);
@@ -221,17 +222,20 @@ fn read_device(device: &hidapi::HidDevice, shared: &Mutex<Shared>, stop: &Atomic
                 wake = state.motion.active() != motion.active();
                 state.motion = motion;
                 state.last_report = Some(now);
-                if filter.calibrated() && state.status != Status::Connected {
-                    state.status = Status::Connected;
-                    wake = true;
-                }
             }
             None => {
+                if len == 0 {
+                    filter.quiet(now);
+                }
                 if state.motion.active() && state.last_report.is_some_and(|at| now.saturating_duration_since(at) >= Duration::from_millis(250)) {
                     state.motion = motion::Motion::default();
                     wake = true;
                 }
             }
+        }
+        if filter.calibrated() && state.status != Status::Connected {
+            state.status = Status::Connected;
+            wake = true;
         }
         drop(state);
         if wake {

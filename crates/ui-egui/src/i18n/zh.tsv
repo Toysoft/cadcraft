@@ -1017,7 +1017,7 @@
 	Zoom sensitivity	缩放灵敏度
 	Reverse zoom direction	反转缩放方向
 	Calibrate	校准
-	Move sideways to pan; push/pull or twist to zoom.	向侧面移动以平移；推拉或扭转以缩放。
+	Move sideways to pan; push or pull to zoom.	向侧面移动以平移；推拉以缩放。
 	Left device button: zoom extents. Right device button: calibrate.	左侧设备按钮：范围缩放。右侧设备按钮：校准。
 	Not a number or distance: {text}	不是数字或距离：{text}
 	Plotter Manager...	绘图仪管理器...

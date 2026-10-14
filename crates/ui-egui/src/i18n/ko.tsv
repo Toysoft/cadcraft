@@ -1217,7 +1217,7 @@
 	Zoom sensitivity	줌 감도
 	Reverse zoom direction	줌 방향 반전
 	Calibrate	보정
-	Move sideways to pan; push/pull or twist to zoom.	옆으로 움직이면 초점이 이동하고, 밀거나 당기거나 비틀면 확대 또는 축소됩니다.
+	Move sideways to pan; push or pull to zoom.	옆으로 움직이면 초점이 이동하고, 밀거나 당기면 확대 또는 축소됩니다.
 	Left device button: zoom extents. Right device button: calibrate.	장치 왼쪽 버튼: 범위 줌. 장치 오른쪽 버튼: 보정.
 	More toolbar commands	도구 막대 명령 더 보기
 	Default save version	기본 저장 버전

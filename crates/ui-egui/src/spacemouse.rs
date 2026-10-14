@@ -20,7 +20,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { enabled: true, pan_speed: 0.8, zoom_speed: 1.6, reverse_zoom: false }
+        Self { enabled: true, pan_speed: 1.2, zoom_speed: 1.6, reverse_zoom: false }
     }
 }
 
@@ -156,7 +156,7 @@ pub fn dialog(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) {
         {
             let _ = app.run("ui.spacemouse.calibrate", Value::Null);
         }
-        ui.label(crate::tl!("Move sideways to pan; push/pull or twist to zoom."));
+        ui.label(crate::tl!("Move sideways to pan; push or pull to zoom."));
         ui.label(crate::tl!("Left device button: zoom extents. Right device button: calibrate."));
     });
 }

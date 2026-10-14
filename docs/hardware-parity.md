@@ -1,12 +1,12 @@
 # Hardware parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (zoom and pan regenerate in the background) · **Target:** Autodesk AutoCAD 2027 (Mac and Windows)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (3D mouse: 2D pan and zoom on Windows and Linux) · **Target:** Autodesk AutoCAD 2027 (Mac and Windows)
 
 The hardware AutoCAD uses and how CADCraft compares, per platform. Work items:
 [gaps.md](gaps.md#hardware).
 
 **Headline (estimated): hardware ≈ 45%.** 2D GPU drawing, HiDPI and trackpads are covered on
-every platform. Missing: 3D mice, tablets/digitizers, GPU-accelerated 3D (there is no 3D), and
+every platform. Missing: 3D mice on macOS and the web, tablets/digitizers, GPU-accelerated 3D (there is no 3D), and
 any deliberate multi-monitor handling. Remaining: **≈ 15–25 Opus 5.5 hours**, plus a human with
 the devices to test 3D mice and tablets.
 
@@ -25,7 +25,7 @@ requirements and graphics-performance documentation. Nothing was benchmarked in 
 | Trackpad pan, pinch zoom | yes (Mac) | yes, with trackpad vs wheel detection (#58) | wheel only (precision touchpad untested) | wheel; delay reported on Linux Mint (#25) | browser events |
 | Magic Mouse | yes | treated as a trackpad | — | — | — |
 | Wheel mouse, middle-button pan | yes | yes | yes | yes | yes |
-| 3D mouse (3Dconnexion SpaceMouse) | yes | **no** | **no** | **no** | no |
+| 3D mouse (3Dconnexion SpaceMouse) | yes | **no** | 2D pan and zoom over raw HID, no vendor driver needed (#650); tested on a SpaceNavigator without 3DxWare, untested with 3DxWare installed | 2D pan and zoom over raw HID (#650); untested on a device | no (WebHID would work in Chromium) |
 | Pen tablet / digitizer (TABLET command, calibration) | yes (Windows) | **no** | **no** | **no** | no |
 | Screen magnifier following the cursor | yes | — | breaks (#39; PR #187 adds a system-cursor option) | — | — |
 | Plotters and printers (PC3 devices, system printers) | yes | **no**: PDF/PNG/SVG files only; Print asks where to save the PDF (#26) | same | same | PDF bytes shown instead of a download (#134) |
@@ -48,5 +48,6 @@ next step.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | 3D mouse: 2D pan and zoom on Windows and Linux (#650), calibration fixed for devices that are silent at rest, tested on a SpaceNavigator |
 | 2026-10-13 | minor | Zoom and pan regenerate in the background: 2–4.5 s stalls down to 26–64 ms on a hatched DWG |
 | 2026-10-10 | major | First hardware parity doc: GPU backends per platform, input devices, displays, plotters |
