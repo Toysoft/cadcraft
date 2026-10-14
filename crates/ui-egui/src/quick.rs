@@ -382,6 +382,7 @@ pub fn quick_properties(app: &mut CadApp, ctx: &egui::Context) {
                         }
                         ui.end_row();
                         num_row(ui, "Text height", id("h"), tx.height, &mut set, "height");
+                        num_row(ui, "Rotation", id("rot"), tx.rotation.to_degrees(), &mut set, "rotation");
                     }
                     Some(EntityKind::Insert(i)) => {
                         ro_row(ui, "Name", i.block.clone());

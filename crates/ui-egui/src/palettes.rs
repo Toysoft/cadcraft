@@ -1017,6 +1017,7 @@ pub(crate) fn properties_section(app: &mut CadApp, ui: &mut egui::Ui) {
                 });
                 num(ui, "Text height", "height", len(tx.height), &mut set, &mut bad, &ids);
                 num(ui, "Defined width", "width", len(tx.width), &mut set, &mut bad, &ids);
+                num(ui, "Rotation", "rotation", real(tx.rotation.to_degrees()), &mut set, &mut bad, &ids);
             }
             EntityKind::LwPolyline(pl) => {
                 num(ui, "Global width", "width", len(pl.const_width), &mut set, &mut bad, &ids);
