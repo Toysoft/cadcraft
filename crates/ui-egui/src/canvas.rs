@@ -86,6 +86,9 @@ pub struct CanvasState {
     /// Milliseconds spent converting the display list to vertex data (last rebuild).
     pub mesh_ms: f64,
     pub rect: Option<Rect>,
+    /// The pointer is over the drawing area, where the drawn crosshair is the pointer and the system cursor is hidden.
+    /// `show` sets it each frame; the app hides and shows the system cursor to match.
+    pub hide_system_cursor: bool,
     pub xf: Option<Xf>,
     pub hover: Option<Handle>,
     pub snap: Option<SnapHit>,
@@ -1840,20 +1843,24 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     if app.ui.show_command_line {
         crate::cmdline::show(app, ui, full);
     }
-    // Crosshair cursor.
-    if inside {
-        // Hide the OS cursor under the drawn crosshair, unless assistive tech needs it (#39).
+    // The software draws the pointer across the drawing area, and the system cursor is hidden there, as in games. This is
+    // set after the overlays (ViewCube, UCS icon, command line), so their hover cursors cannot bring it back. Floating
+    // windows and menus are not drawing area and keep the arrow.
+    let over_drawing = hover_pos.is_some_and(|p| rect.contains(p) && ui.ctx().layer_id_at(p) == Some(ui.layer_id()));
+    if over_drawing {
         ui.ctx().set_cursor_icon(if app.ui.system_cursor { egui::CursorIcon::Crosshair } else { egui::CursorIcon::None });
-        if let Some(hp) = hover_pos {
-            draw_crosshair(app, &painter, rect, hp, selecting);
-        }
-        if app.session.settings.dynmode
-            && let Some(hp) = hover_pos
-        {
-            // A stretched grip shows its dimensions instead of the pointer boxes.
-            if !crate::grip_dyn::draw(app, &painter) {
-                dynamic_input(app, &painter, hp);
-            }
+    }
+    app.canvas.hide_system_cursor = over_drawing && !app.ui.system_cursor;
+    if over_drawing && let Some(hp) = hover_pos {
+        draw_crosshair(app, &painter, rect, hp, selecting);
+    }
+    if inside
+        && app.session.settings.dynmode
+        && let Some(hp) = hover_pos
+    {
+        // A stretched grip shows its dimensions instead of the pointer boxes.
+        if !crate::grip_dyn::draw(app, &painter) {
+            dynamic_input(app, &painter, hp);
         }
     }
     // No continuous repaint while hovering: input events repaint by themselves. Repainting every
