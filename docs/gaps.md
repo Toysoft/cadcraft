@@ -1,6 +1,6 @@
 # Where CADCraft falls short of AutoCAD
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and saved: F17 narrowed) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (dimension shortcut menu: style overrides, Save as New Style, Precision; U14 narrowed) · **Target:** Autodesk AutoCAD 2027
 
 Every known shortfall, one row each, ranked within each section by user impact. This is the work
 list: agents pick from here (top of a section first), and remove or update a row in the same PR
@@ -53,6 +53,7 @@ Detail and evidence: [ui-parity.md](ui-parity.md).
 
 | # | Gap | User impact | Est. |
 |---|---|---|---|
+| U14 | Properties palette leftovers for text and dimensions: Quick Properties still shows its own few text rows; no rows yet for MTEXT background mask, direction and defined height or TEXT backwards and upside down (not modelled). Every other TEXT, MTEXT and dimension property is edited there, for one object or several of one type, from `properties.describe` (#954, #994) | Low | 2–4 |
 | U4 | Tab snap cycling offers the closest snap of each mode, not every candidate. Typed snap overrides (`END`, `MID` … `NON`), the Shift/Ctrl+right-click snap menu and Tab cycling landed (#393), the menu's Temporary track point in #441 | Low | 1 |
 | U5 | Grip menus open on right-click only (no hover menu, no Ctrl to cycle the options); no multifunctional grips on dimensions, MLEADER, hatches or text; Add Vertex on an arc segment straightens it. Hot-grip options (Base point, Copy, Undo, Reference, eXit), multiple hot grips and the polyline/line/arc grip menus landed (#425) | Low-medium | 2–4 |
 | U6 | Selection: lasso; selection cycling (a list of overlapping objects, SELECTIONCYCLING); the CLass keyword; isolation saved with the drawing (OBJECTISOLATIONMODE 1) and the status-bar isolate button. Press-drag windows (#63), the W, C, F, WP and CP keywords (#226), BOX, AUto, SIngle, Multiple, Group, Add, Remove and Undo, SELECTSIMILAR, and ISOLATEOBJECTS/HIDEOBJECTS/UNISOLATEOBJECTS (#428) landed | Medium | 3–5 |
@@ -145,6 +146,9 @@ Detail: [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Dimension shortcut menu: Remove Style Overrides (`dimoverride.clear`), Dimension Style ▸ with Save as New Style (`dimstyle.saveas`), Precision ▸, Align Text ▸; U14 narrowed to Quick Properties and unmodelled rows (#1008) |
+| 2026-10-13 | minor | Properties palette draws the text, mtext and dimension rows the engine describes: every dimension style setting as an override of the selected dimensions, style, justification and line spacing rows, several objects of one type at once with *VARIES*; U14 narrowed to the shortcut menu, Quick Properties and unmodelled rows (#994) |
+| 2026-10-13 | minor | U14 added: the Properties palette's text, mtext and dimension rows; `properties.describe` and the `properties.set` keys behind them landed (engine side, #954). Dimension and text style edits now redraw dimensions read from files |
 | 2026-10-12 | minor | Object transparency (entity, ByLayer, ByBlock) is drawn: on screen (TRANSPARENCYDISPLAY, on by default), in PNG/SVG exports, and in plots when the page setup's "Plot transparency" is on (PDF alpha, PNG blending, SVG opacity; PLOTTRANSPARENCYOVERRIDE): F14 narrowed |
 | 2026-10-12 | minor | Hatch and Gradient dialog (HATCH, GRADIENT; HPDLGMODE) and Hatch Edit dialog (HATCHEDIT, right-click, double-click a hatch): F13 narrowed to Preview, Inherit Properties and boundary add/remove in edit mode |
 | 2026-10-12 | minor | A bare system variable name typed at the command line (ORTHOMODE, GRIDMODE…) runs SETVAR on that variable, as in AutoCAD; U10 narrowed |
