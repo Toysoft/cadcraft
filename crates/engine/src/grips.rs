@@ -5,7 +5,7 @@
 //! undoable and reachable from scripts, the control channel and MCP.
 
 use cadcraft_doc::{DimKind, EntityKind, Handle, LwPolyline};
-use cadcraft_geom::{Arc, EPS, Mat3, Polyline, Vec2, Vec3, norm_angle};
+use cadcraft_geom::{Arc, EPS, Mat3, Vec2, Vec3, norm_angle, polyline_segments};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -48,25 +48,16 @@ enum PolyGrip {
 
 fn poly_grip(p: &LwPolyline, index: usize) -> Option<PolyGrip> {
     let n = p.vertices.len();
-    // Start vertices of the non-degenerate segments, in the same order as Polyline::segments().
-    let count = if p.closed { n } else { n.saturating_sub(1) };
-    let mut seg_starts = Vec::with_capacity(count);
-    for i in 0..count {
-        let (Some(v), Some(w)) = (p.vertices.get(i), p.vertices.get((i + 1) % n.max(1))) else { continue };
-        if v.p.near(w.p, EPS) && v.bulge.abs() < 1e-12 {
-            continue;
-        }
-        seg_starts.push(i);
-    }
+    let mut segments = polyline_segments(&p.vertices, p.closed).peekable();
     let mut k = 0usize;
     for i in 0..n {
         if k == index {
             return Some(PolyGrip::Vertex(i));
         }
         k += 1;
-        if let Some(start) = seg_starts.get(i) {
+        if segments.next_if(|(start, _)| *start == i).is_some() {
             if k == index {
-                return Some(PolyGrip::Mid(*start));
+                return Some(PolyGrip::Mid(i));
             }
             k += 1;
         }
@@ -534,7 +525,7 @@ impl Session {
 
 /// Polyline helper kept public for the UI: segment midpoints are grips too.
 pub fn polyline_grip_count(p: &LwPolyline) -> usize {
-    p.vertices.len() + Polyline { vertices: p.vertices.clone(), closed: p.closed }.segments().len().min(p.vertices.len())
+    p.vertices.len() + polyline_segments(&p.vertices, p.closed).count()
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 //! Wide polylines with a linetype: each dash is a filled piece of the band, gaps are empty.
 
 use cadcraft_doc::{Linetype, LwPolyline};
-use cadcraft_geom::{Polyline, Vec2};
+use cadcraft_geom::{Vec2, polyline_segments};
 
 use crate::linetype;
 
@@ -17,11 +17,9 @@ struct Sample {
 /// Centre-line samples of each segment, widths interpolated as [`crate::fill::wide_polyline`]
 /// does; distances start at 0 for each segment.
 fn segments(p: &LwPolyline, tol: f64) -> Vec<Vec<Sample>> {
-    let pl = Polyline { vertices: p.vertices.clone(), closed: p.closed };
-    let n = p.vertices.len();
     let mut out = Vec::new();
-    for (i, seg) in pl.segments().iter().enumerate() {
-        let v = p.vertices.get(i % n.max(1)).copied().unwrap_or_default();
+    for (i, seg) in polyline_segments(&p.vertices, p.closed) {
+        let Some(v) = p.vertices.get(i) else { continue };
         let (w0, w1) = if p.const_width > 0.0 { (p.const_width, p.const_width) } else { (v.start_width, v.end_width) };
         let mut pts = Vec::new();
         seg.tessellate(tol, &mut pts);

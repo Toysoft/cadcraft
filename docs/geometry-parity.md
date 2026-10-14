@@ -1,6 +1,6 @@
 # Geometry parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (property-based and hostile-input test suite for geometry landed) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (polyline source ownership and linear grip generation) · **Target:** Autodesk AutoCAD 2027
 
 CAD users trust numbers: a trimmed endpoint, an offset, an intersection or an area is either right
 to the last displayed digit or the tool is unusable for production drawings. This document
@@ -44,7 +44,7 @@ constraints 10%.
 | Curve | AutoCAD | CADCraft |
 |---|---|---|
 | Line, ray, xline | yes | yes, exact |
-| Circle, arc, bulge polyline | yes | yes, exact |
+| Circle, arc, bulge polyline | yes | yes, exact; repeated vertices keep segment-width and midpoint-grip ownership. Grip generation walks segments once without rebuilding a segment vector per vertex |
 | Ellipse, elliptical arc | yes | yes (center, major axis, ratio, parameters) |
 | Spline: CV form, rational, any degree | yes | yes: rational B-spline, basis-function evaluation |
 | Spline: fit points | degree 3 with end tangents, knot parameterisation (chord, square root, uniform), fit tolerance | cubic, chord-length, averaged knots, dense solve; **no end tangents, no knot parameterisation choice, no fit tolerance** (`geom/src/spline.rs:31-88`) |
@@ -155,6 +155,7 @@ Total ≈ 90–140 h; items 1–6 parallelise across two or three agents.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | Share a borrowed segment iterator with source indices across solid/dashed widths and grips; preserve midpoint edit ownership around repeated vertices (#928). No readiness score change |
 | 2026-10-12 | trivial | TRIM on a closed polyline keeps only the complementary run when the pick lies past the last cut (#726) |
 | 2026-10-12 | minor | Property-based and hostile-input tests for geometry numerics landed (`crates/geom/src/property_tests.rs`): intersections, closest points, three-point arcs, bounds, vector identities; hostile f64s never panic; known answers at 1e6–1e7 |
 | 2026-10-10 | major | First geometry-precision audit: tolerances, curves, intersections, offsets, modify commands, measurement, hatch, solver |

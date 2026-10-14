@@ -1407,10 +1407,10 @@ impl EntityKind {
             }
             EntityKind::LwPolyline(p) => {
                 let mut g: Vec<Vec2> = Vec::new();
-                let pl = Polyline { vertices: p.vertices.clone(), closed: p.closed };
+                let mut segments = cadcraft_geom::polyline_segments(&p.vertices, p.closed).peekable();
                 for (i, v) in p.vertices.iter().enumerate() {
                     g.push(v.p);
-                    if let Some(s) = pl.segments().get(i) {
+                    if let Some((_, s)) = segments.next_if(|(start, _)| *start == i) {
                         g.push(s.mid());
                     }
                 }

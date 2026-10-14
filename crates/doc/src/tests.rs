@@ -1,6 +1,43 @@
 use crate::*;
 use cadcraft_geom::{Bounds2, Mat3, PolyVertex, Vec2, Vec3};
 
+#[test]
+fn polyline_grips_follow_source_vertices_after_degenerate_edges() {
+    for closed in [false, true] {
+        let p = LwPolyline {
+            vertices: [0.0, 0.0, 10.0, 10.0, 20.0].map(|x| PolyVertex::new(Vec2::new(x, 0.0))).to_vec(),
+            closed,
+            const_width: 0.0,
+            elevation: 0.0,
+            plinegen: false,
+        };
+        let mut expected = vec![0.0, 0.0, 5.0, 10.0, 10.0, 15.0, 20.0];
+        if closed {
+            expected.push(10.0);
+        }
+        assert_eq!(EntityKind::LwPolyline(p).grips(), expected.into_iter().map(|x| Vec2::new(x, 0.0)).collect::<Vec<_>>());
+    }
+}
+
+#[test]
+#[ignore = "manual bounded timing comparison; no timing assertion"]
+fn polyline_grips_timing() {
+    for count in [1000, 2000, 4000] {
+        let p = EntityKind::LwPolyline(LwPolyline {
+            vertices: (0..count).map(|x| PolyVertex::new(Vec2::new(x as f64, (x % 2) as f64))).collect(),
+            closed: false,
+            const_width: 0.0,
+            elevation: 0.0,
+            plinegen: false,
+        });
+        let start = std::time::Instant::now();
+        for _ in 0..5 {
+            std::hint::black_box(p.grips());
+        }
+        eprintln!("{count} vertices, 5 grip lists: {:?}", start.elapsed());
+    }
+}
+
 fn line(a: (f64, f64), b: (f64, f64)) -> EntityKind {
     EntityKind::Line(Line { a: Vec3::new(a.0, a.1, 0.0), b: Vec3::new(b.0, b.1, 0.0) })
 }

@@ -1,5 +1,23 @@
 use crate::*;
 
+#[test]
+fn indexed_polyline_segments_keep_arc_sources_and_closing_edges() {
+    let vertices = [
+        PolyVertex::new(Vec2::ZERO),
+        PolyVertex { bulge: 1.0, ..PolyVertex::new(Vec2::ZERO) },
+        PolyVertex::new(Vec2::new(2.0, 0.0)),
+        PolyVertex::new(Vec2::new(2.0, 0.0)),
+    ];
+    let segments: Vec<_> = polyline_segments(&vertices, true).collect();
+    assert_eq!(segments.iter().map(|(i, _)| *i).collect::<Vec<_>>(), [1, 3]);
+    assert!(matches!(segments[0].1, Segment::Arc { .. }));
+    assert!(segments[0].1.mid().near(Vec2::new(1.0, -1.0), 1e-9));
+    assert!(segments[1].1.mid().near(Vec2::new(1.0, 0.0), 1e-9));
+    assert_eq!(polyline_segments(&vertices, false).count(), 1);
+    assert_eq!(polyline_segments(&[], true).count(), 0);
+    assert_eq!(polyline_segments(&vertices[..1], true).count(), 0);
+}
+
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-6
 }

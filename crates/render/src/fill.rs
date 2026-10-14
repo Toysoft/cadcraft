@@ -1,7 +1,7 @@
 //! Polygon filling: even-odd regions to triangles (slab decomposition), wide polylines.
 
 use cadcraft_doc::LwPolyline;
-use cadcraft_geom::{Polyline, Vec2};
+use cadcraft_geom::{Vec2, polyline_segments};
 
 /// Triangulate an even-odd region bounded by closed loops (holes allowed) by cutting it into
 /// horizontal slabs at every vertex y and emitting trapezoids. Robust for any input; output
@@ -63,11 +63,9 @@ pub fn triangulate_evenodd(loops: &[Vec<Vec2>]) -> Vec<Vec2> {
 
 /// Triangles for a polyline with widths (constant or tapered per segment).
 pub fn wide_polyline(p: &LwPolyline, tol: f64) -> Vec<Vec2> {
-    let pl = Polyline { vertices: p.vertices.clone(), closed: p.closed };
     let mut out = Vec::new();
-    let n = p.vertices.len();
-    for (i, seg) in pl.segments().iter().enumerate() {
-        let v = p.vertices.get(i % n.max(1)).copied().unwrap_or_default();
+    for (i, seg) in polyline_segments(&p.vertices, p.closed) {
+        let Some(v) = p.vertices.get(i) else { continue };
         let (w0, w1) = if p.const_width > 0.0 { (p.const_width, p.const_width) } else { (v.start_width, v.end_width) };
         let mut pts = Vec::new();
         seg.tessellate(tol, &mut pts);
@@ -96,6 +94,31 @@ pub fn wide_polyline(p: &LwPolyline, tol: f64) -> Vec<Vec2> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn degenerate_edges_keep_solid_and_dashed_width_ownership() {
+        use cadcraft_doc::Linetype;
+        use cadcraft_geom::PolyVertex;
+        let vertices = [(0.0, 100.0), (0.0, 2.0), (10.0, 80.0), (10.0, 6.0), (20.0, 10.0)].map(|(x, width)| PolyVertex {
+            p: Vec2::new(x, 0.0),
+            start_width: width,
+            end_width: width + 2.0,
+            ..Default::default()
+        });
+        for closed in [false, true] {
+            for const_width in [0.0, 3.0] {
+                let p = LwPolyline { vertices: vertices.to_vec(), closed, const_width, elevation: 0.0, plinegen: false };
+                let clean = LwPolyline { vertices: vec![vertices[1], vertices[3], vertices[4]], ..p.clone() };
+                assert_eq!(wide_polyline(&p, 0.1), wide_polyline(&clean, 0.1));
+                let lt = Linetype::simple("test", "test", &[2.0, -1.0]);
+                for plinegen in [false, true] {
+                    let p = LwPolyline { plinegen, ..p.clone() };
+                    let clean = LwPolyline { plinegen, ..clean.clone() };
+                    assert_eq!(crate::wide::dashed(&p, 0.1, &lt, 1.0, 0.01), crate::wide::dashed(&clean, 0.1, &lt, 1.0, 0.01));
+                }
+            }
+        }
+    }
 
     fn area(tris: &[Vec2]) -> f64 {
         tris.chunks(3).map(|t| ((t[1] - t[0]).cross(t[2] - t[0]) / 2.0).abs()).sum()

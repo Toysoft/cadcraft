@@ -22,6 +22,37 @@ fn v(x: f64, y: f64) -> Vec2 {
 }
 
 #[test]
+fn degenerate_polyline_grips_edit_their_own_vertices_and_undo() {
+    use cadcraft_doc::{Common, LwPolyline, Space};
+    use cadcraft_geom::PolyVertex;
+    for closed in [false, true] {
+        let p = LwPolyline {
+            vertices: [0.0, 0.0, 10.0, 10.0, 20.0].map(|x| PolyVertex::new(v(x, 0.0))).to_vec(),
+            closed,
+            const_width: 0.0,
+            elevation: 0.0,
+            plinegen: false,
+        };
+        let original = EntityKind::LwPolyline(p.clone());
+        assert_eq!(polyline_grip_count(&p), original.grips().len());
+        for (index, changed) in [(1, vec![1]), (2, vec![1, 2]), (4, vec![3]), (5, vec![3, 4])] {
+            let mut s = Session::new();
+            let handle = s.doc_mut().unwrap().add(&Space::Model, Common::default(), original.clone()).unwrap();
+            let point = original.grips()[index];
+            s.grip_edit(handle, index, point + v(0.0, 3.0), GripMode::Stretch).unwrap();
+            let EntityKind::LwPolyline(edited) = kind(&s, handle) else { panic!("expected polyline") };
+            for (i, vertex) in edited.vertices.iter().enumerate() {
+                assert_eq!(vertex.p, p.vertices[i].p + v(0.0, if changed.contains(&i) { 3.0 } else { 0.0 }));
+            }
+            s.execute("undo", &json!({})).unwrap();
+            assert_eq!(kind(&s, handle), original);
+            s.execute("redo", &json!({})).unwrap();
+            assert_eq!(kind(&s, handle), EntityKind::LwPolyline(edited));
+        }
+    }
+}
+
+#[test]
 fn line_and_circle_grips() {
     let mut s = Session::new();
     let l = h(&s.execute("line", &json!({"points": [[0, 0], [10, 0]]})).unwrap());

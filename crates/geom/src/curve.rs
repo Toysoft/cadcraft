@@ -463,26 +463,31 @@ pub struct Polyline {
     pub closed: bool,
 }
 
+/// Nondegenerate segments and their source vertex indices, without cloning the vertices or
+/// allocating a segment list. A closed polyline includes the last-to-first edge.
+pub fn polyline_segments(vertices: &[PolyVertex], closed: bool) -> impl Iterator<Item = (usize, Segment)> + '_ {
+    let n = vertices.len();
+    let count = if closed { n } else { n.saturating_sub(1) };
+    (0..count).filter_map(move |i| {
+        let (v, w) = (vertices.get(i)?, vertices.get((i + 1) % n.max(1))?);
+        if v.p.near(w.p, EPS) && v.bulge.abs() < 1e-12 {
+            return None;
+        }
+        let segment = match bulge_to_arc(v.p, w.p, v.bulge) {
+            Some((arc, ccw)) => Segment::Arc { arc, ccw },
+            None => Segment::Line(Line::new(v.p, w.p)),
+        };
+        Some((i, segment))
+    })
+}
+
 impl Polyline {
     pub fn from_points(pts: &[Vec2], closed: bool) -> Self {
         Polyline { vertices: pts.iter().map(|p| PolyVertex::new(*p)).collect(), closed }
     }
     /// The segments, including the closing segment when closed.
     pub fn segments(&self) -> Vec<Segment> {
-        let n = self.vertices.len();
-        let mut out = Vec::with_capacity(n);
-        let count = if self.closed { n } else { n.saturating_sub(1) };
-        for i in 0..count {
-            let (Some(v), Some(w)) = (self.vertices.get(i), self.vertices.get((i + 1) % n.max(1))) else { continue };
-            if v.p.near(w.p, EPS) && v.bulge.abs() < 1e-12 {
-                continue;
-            }
-            match bulge_to_arc(v.p, w.p, v.bulge) {
-                Some((arc, ccw)) => out.push(Segment::Arc { arc, ccw }),
-                None => out.push(Segment::Line(Line::new(v.p, w.p))),
-            }
-        }
-        out
+        polyline_segments(&self.vertices, self.closed).map(|(_, segment)| segment).collect()
     }
     pub fn len(&self) -> f64 {
         self.segments().iter().map(Segment::len).sum()
