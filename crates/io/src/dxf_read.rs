@@ -133,21 +133,24 @@ fn multiline_attrib(embedded: Option<&[Tag]>, c: &Common) -> Option<MultilineAtt
 
 /// Multiline text from MTEXT groups (an MTEXT entity's, or a multiline attribute's embedded ones).
 fn mtext_from(tags: &[Tag], c: &Common) -> MText {
-    let t = T(tags);
+    // Every field comes from the MTEXT's own groups: an R2018+ embedded object (group 101)
+    // reuses the codes for other values (10 the direction, 11 the insertion point, 41 the
+    // defined height, 71 the column type, 44 the column width, 73 auto height), so a group the
+    // MTEXT leaves out must not be taken from it (#667, #834).
+    let own = mtext_dxf::own(tags);
+    let t = T(own);
     // Contents: code 3 chunks followed by code 1.
     let mut contents = String::new();
-    for tg in tags.iter().filter(|x| x.code == 3) {
+    for tg in own.iter().filter(|x| x.code == 3) {
         contents.push_str(&tg.str());
     }
     contents.push_str(&t.s(1).unwrap_or_default());
     let contents = mtext_dxf::decode_contents(&contents);
     let columns = mtext_dxf::read_columns(tags);
-    // The direction comes from the MTEXT's own groups only: in an R2018+ embedded object
-    // (group 101), 11 is the insertion point, not the X-axis direction (#667, as in #834).
-    let own = T(mtext_dxf::before_columns(tags));
-    let mut rotation = match (own.f(11), own.f(21)) {
+    let mut rotation = match (t.f(11), t.f(21)) {
         (Some(x), Some(y)) if x != 0.0 || y != 0.0 => Vec2::new(x, y).angle(),
-        _ => own.fd(50, 0.0).to_radians(),
+        // After the column type, 50 is a column height.
+        _ => T(mtext_dxf::before_columns(tags)).fd(50, 0.0).to_radians(),
     };
     let mut attach = t.i(71).unwrap_or(1).clamp(1, 9) as u8;
     if c.extrusion.z < 0.0 {

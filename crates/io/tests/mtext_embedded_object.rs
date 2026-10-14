@@ -1,7 +1,8 @@
 //! An R2018+ MTEXT can carry an embedded object (group 101) that repeats its geometry with
 //! other meanings: there, 10 is the X-axis direction and 11 the insertion point. AutoCAD writes
 //! one for MTEXT with column settings, and the DWG bridge does too. Reading 11 from it as the
-//! direction turned the text towards its own insertion point (#667).
+//! direction turned the text towards its own insertion point (#667), and any group the MTEXT
+//! leaves out must not be taken from the embedded object either.
 
 use cadcraft_doc::{Common, Drawing, EntityKind, MText, Space};
 use cadcraft_geom::Vec3;
@@ -53,13 +54,21 @@ fn with_embedded_object(rotation: f64, dir: (f64, f64)) -> String {
     format!("{}{embedded}{}", &dxf[..end], &dxf[end..])
 }
 
-fn read_rotation(dxf: &str) -> f64 {
+/// `dxf` without the MTEXT's own group `code` (its first one after the subclass marker).
+fn without_own_group(dxf: &str, code: &str) -> String {
+    let start = dxf.find("AcDbMText").unwrap();
+    let at = start + dxf[start..].find(&format!("\r\n{code:>3}\r\n")).unwrap() + 2;
+    let value_end = at + 5 + dxf[at + 5..].find("\r\n").unwrap() + 2;
+    format!("{}{}", &dxf[..at], &dxf[value_end..])
+}
+
+fn read_mtext(dxf: &str) -> MText {
     let back = read_dxf(dxf.as_bytes()).unwrap();
     match back.model.iter().find_map(|e| match &e.kind {
-        EntityKind::MText(t) => Some(t.rotation),
+        EntityKind::MText(t) => Some(t.clone()),
         _ => None,
     }) {
-        Some(r) => r,
+        Some(t) => t,
         None => panic!("no mtext"),
     }
 }
@@ -68,12 +77,24 @@ fn read_rotation(dxf: &str) -> f64 {
 fn embedded_object_insertion_point_is_not_the_direction() {
     let dxf = with_embedded_object(0.0, (1.0, 0.0));
     assert!(dxf.contains("Embedded Object"));
-    assert_eq!(read_rotation(&dxf), 0.0);
+    assert_eq!(read_mtext(&dxf).rotation, 0.0);
 }
 
 #[test]
 fn rotated_mtext_keeps_its_rotation_with_an_embedded_object() {
     let r = 0.5_f64;
     let dxf = with_embedded_object(r, (r.cos(), r.sin()));
-    assert!((read_rotation(&dxf) - r).abs() < 1e-9);
+    assert!((read_mtext(&dxf).rotation - r).abs() < 1e-9);
+}
+
+#[test]
+fn optional_groups_left_out_are_not_taken_from_the_embedded_object() {
+    // 44 (line spacing) and 73 (its style) are optional. In the embedded object they hold the
+    // column width (6.0) and the auto-height flag.
+    let dxf = with_embedded_object(0.0, (1.0, 0.0));
+    let dxf = without_own_group(&without_own_group(&dxf, "44"), "73");
+    let t = read_mtext(&dxf);
+    assert_eq!(t.line_spacing, 1.0, "the column width is not the line spacing");
+    assert!(!t.line_spacing_exact);
+    assert_eq!((t.insert, t.height, t.width, t.attach), (Vec3::new(30.0, 17.0, 0.0), 0.5, 6.0, 1));
 }

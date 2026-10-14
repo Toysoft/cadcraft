@@ -56,7 +56,7 @@ pub(crate) fn encode_contents(s: &str) -> String {
 }
 
 /// The MTEXT's own tags: up to an embedded object (group 101), whose groups reuse MTEXT's codes.
-fn own(tags: &[Tag]) -> &[Tag] {
+pub(crate) fn own(tags: &[Tag]) -> &[Tag] {
     let end = tags.iter().position(|t| t.code == 101).unwrap_or(tags.len());
     tags.get(..end).unwrap_or(tags)
 }
