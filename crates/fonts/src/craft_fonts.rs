@@ -83,7 +83,9 @@ mod tests {
             let sample = match f.scripts.first().copied() {
                 Some("Jpan") => '\u{3042}',
                 Some("Arab") => '\u{0628}',
+                Some("Thai") => '\u{0e01}',
                 Some("Hang" | "Kore") => '가',
+                Some("Thai") => '\u{0e01}',
                 _ => 'A',
             };
             assert!(face.is_some_and(|x| x.has_glyph(sample)), "{} lacks {sample}", f.family);
@@ -92,5 +94,19 @@ mod tests {
             let sh = crate::shape_stroke("\u{65E5}\u{672C}", 1.0, 1.0, 0.0);
             assert_eq!(sh.glyphs.len(), 2, "Japanese drawn from a fallback font");
         }
+    }
+
+    #[test]
+    fn optional_craft_fonts_include_a_thai_face_when_configured() {
+        if option_env!("CRAFT_FONTS_DIR").is_none_or(str::is_empty) {
+            return;
+        }
+        assert!(
+            CRAFT_FONTS.iter().any(|font| {
+                font.scripts.contains(&"Thai")
+                    && crate::ttf::find(&format!("{} {}", font.family, font.style)).is_some_and(|face| face.has_glyph('\u{0e01}'))
+            }),
+            "CRAFT_FONTS_DIR must contain a font that supports Thai"
+        );
     }
 }
