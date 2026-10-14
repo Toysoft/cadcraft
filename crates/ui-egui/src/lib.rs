@@ -48,6 +48,7 @@ pub mod viewcube;
 pub mod vpscale;
 
 pub mod exchange;
+pub mod pdf_tools;
 
 use std::sync::mpsc::Receiver;
 
@@ -187,6 +188,7 @@ impl Default for UiState {
 #[derive(Default)]
 pub struct Services {
     pub pick_open: Option<Box<dyn Fn() -> Option<String>>>,
+    pub pick_pdf: Option<Box<dyn Fn() -> Option<String>>>,
     pub pick_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
 }
 
@@ -200,6 +202,7 @@ pub struct CadApp {
     /// The interface's own preferences from the Options dialog ([`options`]).
     pub options: options::UiOptions,
     pub services: Services,
+    pdf_import_input: Option<Value>,
     pub canvas: canvas::CanvasState,
     /// Desktop HID status and navigation preferences; the web host supplies no HID backend.
     pub spacemouse: spacemouse::State,
@@ -254,6 +257,7 @@ impl CadApp {
             ui: UiState::default(),
             options: options::UiOptions::default(),
             services,
+            pdf_import_input: None,
             canvas: canvas::CanvasState::default(),
             spacemouse: spacemouse::State::default(),
             cmd: cmdline::CmdLine::default(),
@@ -413,6 +417,10 @@ impl CadApp {
     /// "Opening ..." card shows ([`opening`]); [`Self::finish_opening`] adds it when ready. On the
     /// web it opens at once.
     pub fn open_path(&mut self, path: &str) {
+        if pdf_tools::is_pdf(path) {
+            pdf_tools::open_import(self, json!({"path":path}));
+            return;
+        }
         // A LISP file (dropped on the window): loaded as APPLOAD loads it.
         if is_lisp_file(path) {
             match cadcraft_engine::lisp::builtins::read_text_file(path) {
@@ -477,6 +485,11 @@ impl CadApp {
     pub fn open_bytes(&mut self, name: &str, bytes: &[u8]) {
         if let Some(e) = Self::open_size_error(name, bytes.len() as u64) {
             return self.open_failed(e);
+        }
+        if pdf_tools::is_pdf(name) {
+            let data = cadcraft_engine::cmd::file::base64_encode(bytes);
+            pdf_tools::open_import(self, json!({"data":data,"name":name}));
+            return;
         }
         if is_lisp_file(name) {
             return self.load_lisp(name, &String::from_utf8_lossy(bytes));

@@ -1330,3 +1330,25 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+
+	Import Vector PDF...	Імпорт векторного PDF...
+	Import Vector PDF	Імпорт векторного PDF
+	Vector PDF drawings	Векторні креслення PDF
+	PDF file path	Шлях до PDF-файлу
+	Page	Сторінка
+	Drawing units	Одиниці креслення
+	Millimetres	Міліметри
+	Metres	Метри
+	PDF points	Пункти PDF
+	Paper scale factor	Коефіцієнт масштабу друку
+	Insertion X, Y	Точка вставки X, Y
+	Rotation (degrees)	Поворот (градуси)
+	PDF text	Текст PDF
+	Convert embedded text to vector outlines	Перетворити вбудований текст на векторні контури
+	Import Vectors	Імпортувати вектори
+	Analyzing all pages...	Аналіз усіх сторінок...
+	Pages	Сторінки
+	Preview unavailable	Перегляд недоступний
+	Reload PDF	Перезавантажити PDF
+	For a 1:100 drawing in metres, choose Metres and set the paper scale factor to 100.	Для креслення 1:100 у метрах виберіть Метри та коефіцієнт масштабу 100.
+	Imported objects are editable. Verify the scale using a known dimension before aligning survey points.	Імпортовані об’єкти можна редагувати. Перед суміщенням з геодезичними точками перевірте масштаб за відомим розміром.

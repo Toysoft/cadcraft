@@ -1217,3 +1217,25 @@ menu	Modify	Modifikace
 	Search for pattern	Hledat vzor
 	Not a number or distance: {text}	Není číslo ani vzdálenost: {text}
 	Query Texts	Dotaz na texty
+
+	Import Vector PDF...	Importovat vektorové PDF...
+	Import Vector PDF	Import vektorového PDF
+	Vector PDF drawings	Vektorové výkresy PDF
+	PDF file path	Cesta k souboru PDF
+	Page	Stránka
+	Drawing units	Jednotky výkresu
+	Millimetres	Milimetry
+	Metres	Metry
+	PDF points	Body PDF
+	Paper scale factor	Násobek měřítka tisku
+	Insertion X, Y	Bod vložení X, Y
+	Rotation (degrees)	Otočení (stupně)
+	For a 1:100 drawing in metres, choose Metres and set the paper scale factor to 100.	Pro výkres 1:100 v metrech zvolte Metry a násobek měřítka 100.
+	Imported objects are editable. Verify the scale using a known dimension before aligning survey points.	Importované objekty lze upravovat. Před zarovnáním k zaměřeným bodům ověřte měřítko podle známého rozměru.
+	Import Vectors	Importovat vektory
+	Analyzing all pages...	Analyzuji všechny stránky...
+	Pages	Stránky
+	Preview unavailable	Náhled není dostupný
+	Reload PDF	Znovu načíst PDF
+	PDF text	Texty PDF
+	Convert embedded text to vector outlines	Převést vložené texty na vektorové obrysy

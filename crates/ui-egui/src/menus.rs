@@ -218,6 +218,10 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             toggle(&mut app.ui.show_file_tabs, params);
             Ok(Value::Null)
         }
+        "importpdf" | "-importpdf" | "pdfimport" | "-pdfimport" if params.is_null() => {
+            crate::pdf_tools::choose_file(app);
+            Ok(Value::Null)
+        }
         // Typed or chosen from a menu or the tool bar: ask for the file (or show the preview).
         "export" | "exp" | "import" | "imp" | "publish" | "preview" | "pre" if params.is_null() && app.session.state().is_ok() => {
             return Some(crate::exchange::route(app, id));
@@ -692,6 +696,7 @@ mod tests {
                 log.borrow_mut().push(name.to_string());
                 answer.clone()
             })),
+            ..Services::default()
         };
         (CadApp::new(Session::new(), services), asked)
     }

@@ -210,3 +210,11 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 | 2026-10-11 | minor | Object snap tracking, Extension, Parallel, Apparent Intersection, additional polar angles (#379): tracking 30% → 70%, object snaps 40% → 45%; total 43% → 48% |
 | 2026-10-10 | minor | Dynamic input 15% → 45% (pointer boxes, #60); press-drag windows (#63); total 40% → 43% |
 | 2026-10-10 | major | First UI-parity audit: point entry, snaps, tracking, dynamic input, grips, selection, command line, chrome, navigation, keys |
+
+## Vector PDF import (2026-10-14)
+
+IMPORTPDF converts a selected page to editable vectors. It opens the PDF picker,
+then automatically shows the page count and cached thumbnails of every page.
+Unit/scale/placement controls and conversion warnings are available; JSON calls
+remain independent of dialogs. See [PDF import](pdf-import.md) for supported
+content, resource limits and known omissions.

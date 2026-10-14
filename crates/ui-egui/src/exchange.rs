@@ -26,6 +26,10 @@ pub fn route(app: &mut CadApp, id: &str) -> Result<Value, String> {
         "import" | "imp" => {
             let Some(pick) = app.services.pick_open.as_ref() else { return no_picker(app, "IMPORT", r#"import {"path": "parts.dxf"}"#) };
             match pick() {
+                Some(path) if crate::pdf_tools::is_pdf(&path) => {
+                    crate::pdf_tools::open_import(app, json!({"path":path}));
+                    Ok(Value::Null)
+                }
                 Some(path) => app.run("import", json!({ "path": path })),
                 None => Ok(Value::Null),
             }
@@ -176,6 +180,7 @@ mod tests {
                 b.borrow_mut().push(name.to_string());
                 None
             })),
+            ..Services::default()
         };
         (CadApp::new(Session::new(), services), asked)
     }

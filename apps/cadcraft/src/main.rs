@@ -111,6 +111,29 @@ impl eframe::App for App {
 
 /// File format hooks for the engine (it stays I/O-agnostic).
 pub fn install_io() {
+    cadcraft_engine::cmd::pdfimport::set_previewer(|bytes, outlines| {
+        let previews = cadcraft_io::pdf_read::page_previews(bytes, outlines).map_err(|e| e.to_string())?;
+        let pages = previews.len();
+        let previews: Vec<_> = previews
+            .into_iter()
+            .map(|mut p| {
+                if let Some(png) = p.png {
+                    p.info["thumbnail"] = serde_json::json!(cadcraft_engine::cmd::file::base64_encode(&png));
+                }
+                p.info
+            })
+            .collect();
+        Ok(serde_json::json!({"pages": pages, "previews": previews}))
+    });
+    cadcraft_engine::cmd::pdfimport::set_reader(|bytes, page, thumbnail, outlines| {
+        let r = cadcraft_io::pdf_read::read_with(bytes, page, outlines).map_err(|e| e.to_string())?;
+        let mut info = r.info();
+        if thumbnail {
+            let png = cadcraft_io::png(&r.drawing, &cadcraft_engine::doc::Space::Model, 640, 420).map_err(|e| e.to_string())?;
+            info["thumbnail"] = serde_json::json!(cadcraft_engine::cmd::file::base64_encode(&png));
+        }
+        Ok((r.drawing, info))
+    });
     cadcraft_engine::cmd::file::set_io(cadcraft_engine::cmd::file::IoHooks {
         read: |b, name| cadcraft_io::read(b, name).map_err(|e| e.to_string()),
         write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
@@ -128,10 +151,14 @@ pub fn install_io() {
 
 fn services() -> Services {
     Services {
+        pick_pdf: Some(Box::new(|| {
+            rfd::FileDialog::new().add_filter(i18n::t("Vector PDF drawings"), &["pdf"]).pick_file().map(|p| p.to_string_lossy().to_string())
+        })),
         pick_open: Some(Box::new(|| {
             rfd::FileDialog::new()
                 .add_filter(i18n::t("Drawings (DWG, DXF)"), &["dwg", "dxf", "dwt"])
                 .add_filter(i18n::t("SVG drawings (SVG, SVGZ)"), &["svg", "svgz"])
+                .add_filter(i18n::t("Vector PDF drawings"), &["pdf"])
                 .add_filter(i18n::t("All files"), &["*"])
                 .pick_file()
                 .map(|p| p.to_string_lossy().to_string())

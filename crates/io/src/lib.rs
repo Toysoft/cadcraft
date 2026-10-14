@@ -13,6 +13,7 @@ mod dxf_table;
 mod dxf_write;
 mod dxf_xref;
 pub mod pdf;
+pub mod pdf_read;
 pub mod plotter;
 pub mod svg;
 mod svg_read;
@@ -68,6 +69,7 @@ pub fn read(bytes: &[u8], name: &str) -> Result<Drawing> {
     }
     match ext(name).as_str() {
         "svg" | "svgz" => svg_read::read(bytes),
+        "pdf" => pdf_read::read(bytes, 1).map(|p| p.drawing),
         "dxf" | "" => dxf_read::read(bytes),
         e if bytes.len() > 4 => dxf_read::read(bytes).map_err(|_| IoError::Unsupported(e.to_string())),
         e => Err(IoError::Unsupported(e.to_string())),

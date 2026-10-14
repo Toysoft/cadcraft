@@ -22,5 +22,8 @@ serde = { workspace = true }
 miniz_oxide = "0.8"
 quick-xml = { workspace = true }
 
+# MIT-licensed, pure-Rust PDF parser; bounded loading and content decompression.
+lopdf = { version = "0.45", default-features = false, features = ["wasm_js"] }
+
 [dev-dependencies]
 tiny-skia = { workspace = true }

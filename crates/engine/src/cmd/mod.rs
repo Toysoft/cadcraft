@@ -28,6 +28,7 @@ mod modify;
 mod modify2;
 mod mtext_opts;
 mod overkill;
+pub mod pdfimport;
 mod pline_opts;
 pub mod plotters;
 mod props;
@@ -169,6 +170,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
     SPECS.get_or_init(|| {
         let mut v = Vec::new();
         v.extend(file::specs());
+        v.extend(pdfimport::specs());
         v.extend(file::alias_specs());
         v.extend(audit::specs());
         v.extend(edit::specs());

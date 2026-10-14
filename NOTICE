@@ -22,3 +22,5 @@ each under the SIL Open Font License 1.1.
 
 CADCraft is an independent project and is not affiliated with, sponsored by or endorsed by
 Autodesk, Inc. AutoCAD and DWG are trademarks of Autodesk, Inc.
+
+Vector PDF import uses the unmodified MIT-licensed lopdf parser (https://github.com/J-F-Liu/lopdf).
