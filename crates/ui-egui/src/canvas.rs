@@ -79,6 +79,7 @@ pub struct CanvasState {
     /// The selection and hover highlights inside the active MSPACE viewport (see [`VpHighlight`]).
     vp_sel: VpHighlight,
     vp_hover: VpHighlight,
+    pub(crate) hover_part: HoverPart,
     /// Model space seen through the active MSPACE viewport (see [`VpContent`]).
     vp: VpContent,
     /// Indices of infinite-line primitives in `list` (drawn on the CPU in GPU mode).
@@ -628,6 +629,43 @@ impl VpHighlight {
             self.key = Some(key);
             self.list_gen = self.list_gen.wrapping_add(1);
         }
+    }
+}
+
+/// The part of the object under the cursor the running command highlights instead of all of it
+/// (TRIM: the piece a click there removes; [`cadcraft_engine::Session::highlight`]).
+#[derive(Default)]
+pub(crate) struct HoverPart {
+    key: Option<u64>,
+    pub(crate) list: Option<DisplayList>,
+    /// Bumped on each computation.
+    pub(crate) list_gen: u64,
+}
+
+impl HoverPart {
+    /// Work the part out again only when the object, the cursor, Shift, the zoom, the drawing or
+    /// the command's prompt changed: it runs the trim against every cutting edge (in Quick mode
+    /// every object), too much for every frame.
+    fn update(&mut self, session: &mut cadcraft_engine::Session, hover: Option<Handle>, cursor: Option<Vec2>, shift: bool, scale: f64) {
+        let (Some(h), Some(c), Ok(st)) = (hover, cursor, session.state()) else {
+            self.key = None;
+            self.list = None;
+            return;
+        };
+        let key = {
+            use std::hash::{Hash, Hasher};
+            let mut hs = std::collections::hash_map::DefaultHasher::new();
+            let doc = (st.uid, st.revision, std::sync::Arc::as_ptr(&st.doc) as usize);
+            (h, c.x.to_bits(), c.y.to_bits(), shift, scale.to_bits(), doc, session.prompt_text()).hash(&mut hs);
+            hs.finish()
+        };
+        if self.key == Some(key) {
+            return;
+        }
+        self.key = Some(key);
+        self.list =
+            session.with_shift(shift, |s| s.highlight(h, c)).and_then(|ents| Some(rebuilt_preview(&session.state().ok()?.doc, ents.iter(), scale)));
+        self.list_gen = self.list_gen.wrapping_add(1);
     }
 }
 
@@ -1512,10 +1550,11 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 app.cmd.buffer.clear();
             }
             // Preserve a snap's viewport origin for DIST, and its deferred curve where needed.
-            let result = match app.canvas.snap {
-                Some(hit) => app.session.input_snapped(hit),
-                None => app.session.input(Input::Point(p)),
-            };
+            let snap = app.canvas.snap;
+            let result = app.session.with_shift(mods.shift, |s| match snap {
+                Some(hit) => s.input_snapped(hit),
+                None => s.input(Input::Point(p)),
+            });
             if let Err(e) = result {
                 app.session.echo(e.to_string());
             }
@@ -1628,6 +1667,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     // How the object under the cursor and the selected ones are highlighted (PREVIEWEFFECT,
     // HIGHLIGHT, SELECTIONEFFECT); with HIGHLIGHT off only their grips show.
     let (preview_look, selection_look) = (Look::preview(&app.session.settings), Look::selection(&app.session.settings));
+    app.canvas.hover_part.update(&mut app.session, app.canvas.hover, app.canvas.cursor, mods.shift, scale);
     // The active viewport's contents, drawn apart from the layout's list, under its own objects.
     // `masked`: its outline is in the stencil buffer this frame.
     let mut masked = false;
@@ -1667,7 +1707,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             });
             let clipped = painter.with_clip_rect(bounds.intersect(rect));
             let c = &mut app.canvas;
-            if let Some(h) = c.hover
+            if let Some(part) = &c.hover_part.list {
+                draw_highlight(&clipped, &xf, part, &(0..part.prims.len()).collect::<Vec<_>>(), t.hover, preview_look);
+            } else if let Some(h) = c.hover
                 && !sel.contains(&h)
             {
                 c.vp_hover.update(st, &[h], scale);
@@ -1693,8 +1735,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
                 }
             }
         }
-    } else if let CanvasState { list: Some(list), list_gen, prim_index, hover, gpu, hl_key, hl_slot, hl_origin, hl_infinite, .. } = &mut app.canvas {
-        if let Some(h) = *hover
+    } else if let CanvasState { list: Some(list), list_gen, prim_index, hover, hover_part, gpu, hl_key, hl_slot, hl_origin, hl_infinite, .. } =
+        &mut app.canvas
+    {
+        if let Some(part) = &hover_part.list {
+            draw_highlight(&painter, &xf, part, &(0..part.prims.len()).collect::<Vec<_>>(), t.hover, preview_look);
+        } else if let Some(h) = *hover
             && !sel.contains(&h)
         {
             draw_highlight(&painter, &xf, list, &prim_index.prims(*list_gen, list, &[h]), t.hover, preview_look);
@@ -2653,5 +2699,111 @@ mod hatch_pick_tests {
         assert_eq!(app.hatch_dlg.as_ref().map(|s| s.edit.iter().map(|h| h.hex()).collect::<Vec<_>>()), Some(vec![hx]));
         // The double-click (at the hatch's centre grip) only opens the dialog: no grip edit.
         assert!(app.session.running.is_none(), "{:?}", app.session.running.as_ref().map(|r| r.machine.name()));
+    }
+}
+
+#[cfg(test)]
+mod trim_shift_tests {
+    use cadcraft_doc::EntityKind;
+    use cadcraft_engine::Session;
+    use cadcraft_geom::Vec2;
+    use serde_json::json;
+
+    use crate::{CadApp, Services};
+
+    /// Run `cmd` over a boundary at x = 10 and the line `line` (along y = 0), Shift+click the line
+    /// at `at` and return where it ends up.
+    fn shift_click(cmd: &str, line: [[f64; 2]; 2], at: Vec2) -> Option<(Vec2, Vec2)> {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        app.session.execute("line", &json!({ "points": line })).unwrap();
+        app.session.execute("line", &json!({ "points": [[10, -10], [10, 10]] })).unwrap();
+        let _ = app.session.zoom_extents();
+        let ctx = egui::Context::default();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0)));
+        let frame = |app: &mut CadApp, mut events: Vec<egui::Event>, time: f64| {
+            app.logic(&ctx);
+            events.insert(0, egui::Event::ModifiersChanged(egui::Modifiers::SHIFT));
+            let input = egui::RawInput { screen_rect: screen, events, time: Some(time), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| app.ui(ui));
+            out.textures_delta.clear();
+        };
+        frame(&mut app, Vec::new(), 0.0);
+        app.session.cmdline(cmd).unwrap();
+        let pos = app.canvas.xf.unwrap().to_screen(at);
+        let button = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::SHIFT };
+        frame(&mut app, vec![egui::Event::PointerMoved(pos)], 0.1);
+        frame(&mut app, vec![button(true), button(false)], 0.2);
+        // A trim may replace the line with a new piece: find what lies along y = 0.
+        app.session.doc().unwrap().model.iter().find_map(|e| match &e.kind {
+            EntityKind::Line(l) if l.a.y == 0.0 && l.b.y == 0.0 => Some((l.a.xy(), l.b.xy())),
+            _ => None,
+        })
+    }
+
+    /// TRIM's "shift-select to extend" and EXTEND's "shift-select to trim" (#1091).
+    #[test]
+    fn shift_click_switches_between_trim_and_extend() {
+        let (a, b) = shift_click("trim", [[0.0, 0.0], [5.0, 0.0]], Vec2::new(4.0, 0.0)).expect("the line is still there");
+        assert!(a.near(Vec2::ZERO, 1e-9) && b.near(Vec2::new(10.0, 0.0), 1e-9), "TRIM with Shift extends: {a:?} {b:?}");
+        let (a, b) = shift_click("extend", [[0.0, 0.0], [15.0, 0.0]], Vec2::new(14.0, 0.0)).expect("the line is still there");
+        assert!(a.near(Vec2::ZERO, 1e-9) && b.near(Vec2::new(10.0, 0.0), 1e-9), "EXTEND with Shift trims: {a:?} {b:?}");
+    }
+}
+
+#[cfg(test)]
+mod trim_highlight_tests {
+    use cadcraft_engine::Session;
+    use cadcraft_geom::Vec2;
+    use serde_json::json;
+
+    use crate::{CadApp, Services};
+
+    /// Start `cmd` over a boundary at x = 10 and the line from (0, 0) to (5, 0), then rest the
+    /// cursor on the line at (4, 0) for `frames` frames, with `modifiers` held.
+    fn hover(cmd: &str, modifiers: egui::Modifiers, frames: usize) -> CadApp {
+        let mut app = CadApp::new(Session::new(), Services::default());
+        app.session.execute("line", &json!({ "points": [[0, 0], [5, 0]] })).unwrap();
+        app.session.execute("line", &json!({ "points": [[10, -10], [10, 10]] })).unwrap();
+        let _ = app.session.zoom_extents();
+        let ctx = egui::Context::default();
+        let screen = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1600.0, 1000.0)));
+        let frame = |app: &mut CadApp, mut events: Vec<egui::Event>, time: f64| {
+            app.logic(&ctx);
+            events.insert(0, egui::Event::ModifiersChanged(modifiers));
+            let input = egui::RawInput { screen_rect: screen, events, time: Some(time), ..Default::default() };
+            let mut out = ctx.run_ui(input, |ui| app.ui(ui));
+            out.textures_delta.clear();
+        };
+        frame(&mut app, Vec::new(), 0.0);
+        app.session.cmdline(cmd).unwrap();
+        let pos = app.canvas.xf.unwrap().to_screen(Vec2::new(4.0, 0.0));
+        frame(&mut app, vec![egui::Event::PointerMoved(pos)], 0.1);
+        for i in 1..frames {
+            frame(&mut app, Vec::new(), 0.1 + i as f64 * 0.1);
+        }
+        app
+    }
+
+    /// How far right the highlighted part reaches.
+    fn reach(app: &CadApp) -> f64 {
+        app.canvas.hover_part.list.as_ref().expect("a part of the line is highlighted").bounds.max.x
+    }
+
+    /// #1118: with Shift held, TRIM's click extends (#1091), so the highlight shows the extended
+    /// line, not the line the click without Shift would erase.
+    #[test]
+    fn shift_shows_what_the_click_does() {
+        assert!((reach(&hover("trim", egui::Modifiers::NONE, 1)) - 5.0).abs() < 1e-6, "no edge crosses it: the whole line goes");
+        assert!((reach(&hover("trim", egui::Modifiers::SHIFT, 1)) - 10.0).abs() < 1e-6, "Shift extends it to x = 10");
+    }
+
+    /// The highlighted part is worked out again only when something it depends on changes, not
+    /// on every frame with the cursor at rest (it runs the trim against every cutting edge).
+    #[test]
+    fn highlight_is_computed_once_while_the_cursor_rests() {
+        let one = hover("trim", egui::Modifiers::NONE, 1).canvas.hover_part.list_gen;
+        let many = hover("trim", egui::Modifiers::NONE, 5).canvas.hover_part.list_gen;
+        assert!(one > 0, "the part was computed");
+        assert_eq!(many, one, "frames with the cursor at rest compute nothing");
     }
 }
