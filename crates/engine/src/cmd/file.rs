@@ -352,7 +352,9 @@ fn run_close(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(bad("close", "no such drawing"));
     }
     s.cancel();
+    let uid = s.docs[i].uid;
     s.docs.remove(i);
+    s.lisp_forget(uid);
     if i < s.active {
         // An earlier drawing went away: the active one shifted down by one.
         s.active -= 1;
@@ -366,6 +368,7 @@ fn run_close(s: &mut Session, p: &Value) -> Result<Value> {
 fn run_closeall(s: &mut Session, _p: &Value) -> Result<Value> {
     s.cancel();
     s.docs.clear();
+    s.lisp_forget_all();
     s.active = 0;
     ok()
 }
