@@ -248,3 +248,20 @@ fn selection_highlight_settings_set_save_and_show_in_the_selection_tab() {
         assert!(text.contains(label), "{label} missing from:\n{text}");
     }
 }
+
+#[test]
+fn reset_brings_back_hidden_menu_bar_and_toolbar() {
+    // Issue #1240: with the in-window menu bar and the toolbar hidden, OPTIONS ▸ Reset to Defaults
+    // is the way back.
+    let mut a = app();
+    let d = cadcraft_ui_egui::UiState::default();
+    a.ui.in_window_menu = !d.in_window_menu;
+    a.ui.show_toolbar = false;
+    a.ui.show_status_bar = false;
+    a.ui.show_palettes = false;
+    a.run("options", json!({"reset": true})).unwrap();
+    assert_eq!(a.ui.in_window_menu, d.in_window_menu);
+    assert_eq!(a.ui.show_toolbar, d.show_toolbar);
+    assert_eq!(a.ui.show_status_bar, d.show_status_bar);
+    assert_eq!(a.ui.show_palettes, d.show_palettes);
+}

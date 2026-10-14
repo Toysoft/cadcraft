@@ -287,9 +287,21 @@ fn run_json(app: &mut CadApp, params: &Value) -> Result<Value, String> {
     Ok(report(app))
 }
 
-/// The interface preferences back to their defaults (the interface language stays).
+/// The interface preferences back to their defaults (the interface language stays), and the
+/// interface elements shown again: with the in-window menu bar and the toolbar hidden, OPTIONS is
+/// the way back (#1240).
 fn reset_ui(app: &mut CadApp) {
     let d = crate::UiState::default();
+    app.ui.in_window_menu = d.in_window_menu;
+    app.ui.show_toolbar = d.show_toolbar;
+    app.ui.show_toolsets = d.show_toolsets;
+    app.ui.show_palettes = d.show_palettes;
+    app.ui.show_file_tabs = d.show_file_tabs;
+    app.ui.show_status_bar = d.show_status_bar;
+    app.ui.show_command_line = d.show_command_line;
+    app.ui.show_viewcube = d.show_viewcube;
+    app.ui.show_ucs_icon = d.show_ucs_icon;
+    app.ui.show_layer_list = d.show_layer_list;
     app.ui.theme = d.theme;
     app.ui.animations = d.animations;
     app.ui.save_format = d.save_format;
