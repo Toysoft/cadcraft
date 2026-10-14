@@ -320,7 +320,11 @@ fn run_preview(s: &mut Session, p: &Value) -> Result<Value> {
     let lineweights = p.get("lineweights").and_then(Value::as_bool).unwrap_or(if space.is_paper() { page.lineweights } else { true });
     let transparency = super::plotters::plot_transparency(s, p).unwrap_or(page.plot_transparency);
     let fit = p.get("fit").and_then(Value::as_bool).unwrap_or(matches!(space, Space::Model));
-    let scale = p.get("scale").and_then(Value::as_f64).filter(|v| v.is_finite() && *v > 0.0);
+    // Without one, a layout previews at the scale saved in its page setup (unless that fits to
+    // paper), as it plots.
+    let positive = |v: f64| (v.is_finite() && v > 0.0).then_some(v);
+    let saved = (space.is_paper() && !page.scale_to_fit).then_some(page.scale).and_then(positive);
+    let scale = p.get("scale").and_then(Value::as_f64).and_then(positive).or(saved);
     let width = p.get("width").and_then(Value::as_u64).unwrap_or(PREVIEW_PX).clamp(16, MAX_PREVIEW_PX);
     let height = ((width as f64) * sheet.size.y / sheet.size.x).round();
     let height = if height.is_finite() { (height as u64).clamp(16, MAX_PREVIEW_PX) } else { width };
@@ -702,6 +706,27 @@ mod tests {
         let default = png(&mut s, json!({ "layout": "Layout1", "width": 200 }));
         assert_eq!(png(&mut s, json!({ "layout": "Layout1", "width": 200, "fit": false, "scale": 1 })), default, "scale 1 is the 1:1 default");
         assert_ne!(png(&mut s, json!({ "layout": "Layout1", "width": 200, "fit": false, "scale": 0.5 })), default, "scale 0.5 is not 1:1");
+    }
+
+    #[test]
+    fn preview_uses_the_scale_saved_in_a_layouts_page_setup() {
+        let mut s = Session::new();
+        s.execute("layout.set", &json!({ "name": "Layout1" })).unwrap();
+        s.execute("line", &json!({ "points": [[1.0, 1.0], [5.0, 1.0]] })).unwrap();
+        s.execute("pagesetup", &json!({ "layout": "Layout1", "scale": 0.5 })).unwrap();
+        let png = |s: &mut Session, p: Value| s.execute("preview", &p).unwrap()["data"].as_str().unwrap_or_default().to_string();
+        let saved = png(&mut s, json!({ "layout": "Layout1", "width": 200 }));
+        assert_eq!(
+            png(&mut s, json!({ "layout": "Layout1", "width": 200, "fit": false, "scale": 0.5 })),
+            saved,
+            "the page setup's 1:2 (issue #1163)"
+        );
+        assert_ne!(png(&mut s, json!({ "layout": "Layout1", "width": 200, "fit": false, "scale": 1 })), saved, "not 1:1");
+        // A scale given for the preview wins; a page setup that fits to paper leaves its scale aside.
+        assert_ne!(png(&mut s, json!({ "layout": "Layout1", "width": 200, "scale": 0.25 })), saved, "the preview's own scale");
+        s.execute("pagesetup", &json!({ "layout": "Layout1", "scaleToFit": true })).unwrap();
+        let fitted = png(&mut s, json!({ "layout": "Layout1", "width": 200 }));
+        assert_eq!(png(&mut s, json!({ "layout": "Layout1", "width": 200, "fit": false, "scale": 1 })), fitted, "1:1 as before");
     }
 
     #[test]

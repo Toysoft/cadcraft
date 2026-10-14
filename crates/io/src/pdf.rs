@@ -1,8 +1,9 @@
 //! Vector PDF plotting (PLOT / EXPORTPDF): a minimal PDF writer of our own (pure Rust, no file
 //! access, so it runs on the web too).
 //!
-//! One page per sheet: model-space extents fitted to a sheet, or a layout at 1:1 (or the given
-//! `scale`) on its paper (paper units are millimetres in metric drawings, inches otherwise).
+//! One page per sheet: model-space extents fitted to a sheet, or a layout at the scale saved in
+//! its page setup (or the given `scale`, else 1:1) on its paper (paper units are millimetres in
+//! metric drawings, inches otherwise).
 //! Lines are stroked paths (`m`/`l`/`S`), fills are `f` paths, colours are RGB with colour 7 printing black on white
 //! paper, and line widths come from lineweights when enabled. The page setup's plot style
 //! table (or the `plotStyleTable` option) sets the printed colours, linetypes and lineweights.
@@ -391,11 +392,21 @@ struct SheetPage {
     label: String,
 }
 
+/// The scale of a plot that isn't fitted, in paper units per drawing unit: the options' `scale`,
+/// else, for a layout, the one saved in its page setup unless that fits to paper (then the saved
+/// scale is greyed out); `None` plots 1:1. Hostile values (zero, negative, NaN, infinite) count
+/// as none.
+pub(crate) fn sheet_scale(space: &Space, page: &PageSetup, o: &PdfOptions) -> Option<f64> {
+    let saved = (space.is_paper() && !page.scale_to_fit).then_some(page.scale);
+    o.scale.or(saved).filter(|s| s.is_finite() && *s > 0.0)
+}
+
 /// Plot one space.
 fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String)]) -> Result<SheetPage> {
     let page = page_for(d, space, o)?;
     let unit_mm = paper::paper_unit_mm(d);
     let sheet = Sheet::from_page(&page, unit_mm);
+    let scale = sheet_scale(space, &page, o);
     let lineweights = o.lineweights.unwrap_or(if space.is_paper() { page.lineweights } else { true });
     let plot_style_table = cadcraft_doc::plot_style_table(d, &page.plot_style_table).map(std::sync::Arc::new);
     let ropts = cadcraft_render::Options {
@@ -415,14 +426,14 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
     let window = o.window.filter(|w| matches!(space, Space::Model) && !w.is_empty());
     let fit = o.fit.unwrap_or(window.is_some() || matches!(space, Space::Model));
     // Chord tolerance: about 0.05 mm on paper.
-    let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, o.scale);
+    let est = plot_scale(&window.unwrap_or_else(|| d.extents(space)), &sheet, fit, scale);
     let tol = 0.05 / unit_mm / est.max(1e-300);
     let tolerance = if tol.is_finite() && tol > 0.0 { tol } else { ropts.tolerance };
     // Relative point sizes follow the plotted window (else the extents).
     let view_height = window.map(|w| w.height()).unwrap_or(0.0);
     let list = cadcraft_render::build_plot(d, space, &cadcraft_render::Options { tolerance, view_height, ..ropts });
     let b = window.unwrap_or(list.bounds);
-    let s = plot_scale(&b, &sheet, fit, o.scale);
+    let s = plot_scale(&b, &sheet, fit, scale);
     let map = if fit || matches!(space, Space::Model) {
         let (from, to) = placement(space, &b, fit, &sheet, o);
         Map { from, s, to, k }
