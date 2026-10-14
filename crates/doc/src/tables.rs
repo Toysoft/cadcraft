@@ -636,9 +636,13 @@ impl Default for TableStyle {
     }
 }
 
+mod cellcontent;
 mod cellstyle;
+mod rowfit;
 mod tablebreak;
+pub use cellcontent::*;
 pub use cellstyle::*;
+pub use rowfit::*;
 pub use tablebreak::*;
 
 /// A block definition.

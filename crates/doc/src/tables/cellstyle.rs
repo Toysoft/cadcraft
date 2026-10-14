@@ -235,6 +235,8 @@ impl Default for Table {
             row_styles: Vec::new(),
             breaks: None,
             data_link: None,
+            row_grow: crate::RowGrow::Free,
+            row_min: Vec::new(),
         }
     }
 }

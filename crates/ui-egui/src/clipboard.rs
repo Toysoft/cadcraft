@@ -18,6 +18,10 @@ fn serial_id() -> egui::Id {
 fn text_id() -> egui::Id {
     egui::Id::new("cc_clipboard_text")
 }
+/// egui memory: the hash of the table cells' text last put on the system clipboard.
+fn cells_id() -> egui::Id {
+    egui::Id::new("cc_clipboard_cells")
+}
 
 /// Line endings normalised (pasted text arrives with `\n`), so our own text is recognised.
 fn hash(text: &str) -> u64 {
@@ -26,8 +30,13 @@ fn hash(text: &str) -> u64 {
     h.finish()
 }
 
-/// Put a new copy (COPYCLIP, CUTCLIP, COPYBASE from anywhere) on the system clipboard, once.
-pub fn mirror(app: &CadApp, ctx: &egui::Context) {
+/// Put a new copy (COPYCLIP, CUTCLIP, COPYBASE from anywhere, or table cells) on the system
+/// clipboard, once.
+pub fn mirror(app: &mut CadApp, ctx: &egui::Context) {
+    if let Some(text) = app.canvas.cell_text.take() {
+        ctx.data_mut(|d| d.insert_temp(cells_id(), hash(&text)));
+        ctx.copy_text(text);
+    }
     let Some(src) = &app.session.clipboard_source else { return };
     if src.uid.is_none() || ctx.data(|d| d.get_temp::<u64>(serial_id())) == Some(src.serial) {
         return;
@@ -48,8 +57,16 @@ pub fn shortcut_commands(app: &mut CadApp, ctx: &egui::Context) -> Vec<&'static 
         (ev, i.modifiers.shift)
     });
     let mut out = Vec::new();
+    // On picked table cells: the cells are copied, cut and pasted (objects copied in a CADCraft
+    // still paste as objects).
+    let cells = app.canvas.cells.is_some() && !app.session.prompting();
     for e in events {
         match e {
+            egui::Event::Copy | egui::Event::Cut if cells => crate::table_cells::copy(app, matches!(e, egui::Event::Cut)),
+            egui::Event::Paste(text) if cells && !text.trim_start().starts_with("0\n") && !text.trim_start().starts_with("0\r\n") => {
+                let own = ctx.data(|d| d.get_temp::<u64>(cells_id())) == Some(hash(&text));
+                crate::table_cells::paste(app, (!own).then_some(text.as_str()));
+            }
             egui::Event::Copy => out.push(if shift { "copybase" } else { "copyclip" }),
             egui::Event::Cut => out.push("cutclip"),
             egui::Event::Paste(text) => {

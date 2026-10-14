@@ -305,6 +305,7 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 Key::Escape => {
                     app.cmd.buffer.clear();
                     app.session.cancel();
+                    app.canvas.cells = None;
                 }
                 Key::Backspace => {
                     let press = KeyPress { repeat, plain: !(modifiers.alt || modifiers.ctrl || modifiers.command) };
@@ -346,7 +347,12 @@ pub fn keyboard(app: &mut CadApp, ctx: &egui::Context) {
                 }
                 Key::Tab => tab(app),
                 Key::Delete if app.cmd.buffer.is_empty() && !app.session.prompting() => {
-                    let _ = app.run("erase.selection", serde_json::json!({}));
+                    // Picked table cells lose their content; otherwise the selection is erased.
+                    if app.canvas.cells.is_some() {
+                        crate::table_cells::act(app, "delete");
+                    } else {
+                        let _ = app.run("erase.selection", serde_json::json!({}));
+                    }
                 }
                 _ => {}
             },

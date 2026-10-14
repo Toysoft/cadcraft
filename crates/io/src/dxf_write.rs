@@ -899,10 +899,16 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                     let cell = t.cells.get(r).and_then(|x| x.get(c));
                     let covered = cov.get(r).and_then(|x| x.get(c)).copied().unwrap_or(false);
                     let merge = cell.and_then(|x| x.merged).filter(|&(a, b)| a >= 1 && b >= 1 && (a, b) != (1, 1));
-                    w.i(171, 1);
+                    // A block cell (DXF Reference: type 2, the block's record, its scale and the
+                    // attribute values by definition).
+                    let block = cell
+                        .and_then(|x| x.block.as_ref())
+                        .filter(|_| !covered)
+                        .and_then(|b| cx.block_records.get(&b.name.to_ascii_uppercase()).map(|h| (b, h.clone())));
+                    w.i(171, if block.is_some() { 2 } else { 1 });
                     w.i(172, 0);
                     w.i(173, i64::from(covered || merge.is_some()));
-                    w.i(174, 0);
+                    w.i(174, i64::from(block.as_ref().is_some_and(|(b, _)| b.scale.is_none())));
                     let (rs, cs) = if covered { (0, 0) } else { merge.map(|(a, b)| (span(a), span(b))).unwrap_or((1, 1)) };
                     w.i(175, cs);
                     w.i(176, rs);
@@ -911,6 +917,28 @@ fn entity(w: &mut W, d: &Drawing, e: &Entity, owner: &str, paper: bool, cx: &Ctx
                     w.f(145, 0.0);
                     if let Some(h) = cell.and_then(|x| x.text_height).filter(|h| h.is_finite() && *h > 0.0) {
                         w.f(140, h);
+                    }
+                    if let Some((b, rec)) = &block {
+                        w.s(340, rec);
+                        w.f(144, b.scale.unwrap_or(1.0));
+                        let defs: Vec<(Handle, &cadcraft_doc::Attrib)> = d
+                            .block(&b.name)
+                            .map(|blk| {
+                                blk.entities
+                                    .iter()
+                                    .filter_map(|e| match &e.kind {
+                                        EntityKind::AttDef(a) if !a.constant && e.handle != Handle(0) => Some((e.handle, a)),
+                                        _ => None,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        w.i(179, defs.len() as i64);
+                        for (h, a) in defs {
+                            w.s(331, h.hex());
+                            w.s(300, b.attrib(&a.tag).unwrap_or(&a.text.value));
+                        }
+                        continue;
                     }
                     // Long text: 250-character code-2 chunks, the rest in code 1.
                     let chars: Vec<char> = cell.map(|x| x.text.chars().collect()).unwrap_or_default();
@@ -1360,9 +1388,9 @@ fn table_block_entities(d: &Drawing, t: &Table, layer: &str) -> Vec<Entity> {
                 kind: EntityKind::MText(MText {
                     insert: cell.at.to3(0.0),
                     height: cell.height,
-                    width: 0.0,
+                    width: cell.width,
                     attach: cell.attach,
-                    rotation: 0.0,
+                    rotation: cell.rotation,
                     style,
                     contents: cell.text.clone(),
                     line_spacing: 1.0,
@@ -1373,6 +1401,32 @@ fn table_block_entities(d: &Drawing, t: &Table, layer: &str) -> Vec<Entity> {
         }
     }
     out.extend(texts);
+    out.extend(g.blocks.iter().flat_map(|b| cell_block_entities(d, &b.block, &c)));
+    out
+}
+
+/// A cell's block in a table's `*T` block: a block reference, or for a dynamic block shown in a
+/// visibility state, copies of the objects the state shows and its attributes as text (a plain
+/// reference would show the block's default state).
+fn cell_block_entities(d: &Drawing, b: &cadcraft_doc::PlacedCellBlock, c: &Common) -> Vec<Entity> {
+    if b.visibility.controlled.is_empty() {
+        return vec![Entity { handle: Handle(0), common: c.clone(), kind: EntityKind::Insert(b.insert.clone()) }];
+    }
+    let Some(blk) = d.block(&b.insert.block) else { return Vec::new() };
+    let m = b.insert.transform(blk.base.xy());
+    let mut out = Vec::new();
+    for be in blk.entities.iter() {
+        if matches!(be.kind, EntityKind::AttDef(_)) || !b.visibility.shows(be) {
+            continue;
+        }
+        let mut kind = be.kind.clone();
+        kind.transform(&m);
+        let layer = if be.common.layer == "0" { c.layer.clone() } else { be.common.layer.clone() };
+        out.push(Entity { handle: Handle(0), common: Common { layer, visible: true, ..be.common.clone() }, kind });
+    }
+    for a in b.insert.attribs.iter().filter(|a| !a.invisible && !a.text.value.trim().is_empty()) {
+        out.push(Entity { handle: Handle(0), common: c.clone(), kind: EntityKind::Text(a.text.clone()) });
+    }
     out
 }
 

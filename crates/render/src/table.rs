@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use cadcraft_color::Color;
-use cadcraft_doc::{CellBorder, CellStyle, Drawing, Lineweight, Table, TableStyle};
+use cadcraft_doc::{CellBlock, CellBorder, CellStyle, CellVisibility, Drawing, Lineweight, PlacedCellBlock, Table, TableStyle, heavier};
 use cadcraft_geom::Vec2;
 
 use crate::{Builder, Ctx, Ink, ink};
@@ -37,10 +37,24 @@ pub struct TableText {
     pub at: Vec2,
     /// MTEXT attachment (1 top left … 9 bottom right).
     pub attach: u8,
+    /// Rotation in radians (vertical header text).
+    pub rotation: f64,
     pub height: f64,
     pub color: Color,
     pub style: String,
     pub text: String,
+    /// The width the text wraps at (the cell's inside its margins); 0: no wrapping.
+    pub width: f64,
+    /// The cell's margin across the text (above and below it).
+    pub pad: f64,
+}
+
+/// A cell's block, placed in the cell.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TableBlock {
+    pub row: usize,
+    pub col: usize,
+    pub block: PlacedCellBlock,
 }
 
 /// Everything a table draws, in world coordinates.
@@ -49,6 +63,7 @@ pub struct TableGeom {
     pub fills: Vec<TableFill>,
     pub lines: Vec<TableLine>,
     pub texts: Vec<TableText>,
+    pub blocks: Vec<TableBlock>,
 }
 
 /// Which cells are covered by a merge (and so not drawn on their own).
@@ -124,9 +139,13 @@ pub fn table_geometry(d: &Drawing, t: &Table) -> TableGeom {
         for tx in &mut pg.texts {
             tx.row = p.rows.get(tx.row).copied().unwrap_or(tx.row);
         }
+        for bl in &mut pg.blocks {
+            bl.row = p.rows.get(bl.row).copied().unwrap_or(bl.row);
+        }
         g.fills.extend(pg.fills);
         g.lines.extend(pg.lines);
         g.texts.extend(pg.texts);
+        g.blocks.extend(pg.blocks);
     }
     g
 }
@@ -162,6 +181,8 @@ fn part_table(t: &Table, rows: &[usize], origin: Vec2) -> Table {
         header: false,
         breaks: None,
         data_link: None,
+        row_grow: t.row_grow,
+        row_min: Vec::new(),
     }
 }
 
@@ -237,6 +258,13 @@ fn layout(d: &Drawing, t: &Table) -> TableGeom {
     let own = |r: usize, c: usize| owner.get(r * cols + c).copied().filter(|x| *x != usize::MAX);
     let style_of = |a: Option<usize>| a.and_then(|a| anchors.get(a)).and_then(|a| styles.get(a.style));
     let same_style = |a: Option<usize>, b: Option<usize>| matches!((a.and_then(|a| anchors.get(a)), b.and_then(|b| anchors.get(b))), (Some(x), Some(y)) if x.style == y.style);
+    // A cell's own borders: of the anchor cell of a merge.
+    let edges = |a: Option<usize>| a.and_then(|a| anchors.get(a)).and_then(|a| t.cells.get(a.row).and_then(|r| r.get(a.col))).and_then(|c| c.edges);
+    // Two cells' own borders on the edge they share: the heavier wins.
+    let either = |a: Option<CellBorder>, b: Option<CellBorder>| match (a, b) {
+        (Some(a), Some(b)) => Some(heavier(a, b)),
+        (a, b) => a.or(b),
+    };
     // Fills first, under the borders and texts.
     for a in &anchors {
         let Some(cs) = styles.get(a.style) else { continue };
@@ -273,6 +301,8 @@ fn layout(d: &Drawing, t: &Table) -> TableGeom {
                 (Some(a), Some(b)) => Some(CellBorder { visible: a.borders.bottom.visible && b.borders.top.visible, ..b.borders.top }),
                 (None, None) => None,
             };
+            let own_border = either(edges(above).and_then(|e| e.bottom), edges(below).and_then(|e| e.top));
+            let br = own_border.or(br);
             push(&mut g, p(x_at(c), y_at(i)), p(x_at(c + 1), y_at(i)), br);
         }
     }
@@ -290,37 +320,83 @@ fn layout(d: &Drawing, t: &Table) -> TableGeom {
                 (Some(a), Some(b)) => Some(CellBorder { visible: a.borders.right.visible && b.borders.left.visible, ..b.borders.left }),
                 (None, None) => None,
             };
+            let own_border = either(edges(left).and_then(|e| e.right), edges(right).and_then(|e| e.left));
+            let br = own_border.or(br);
             push(&mut g, p(x_at(j), y_at(r)), p(x_at(j), y_at(r + 1)), br);
         }
     }
-    // Texts at their alignment point inside the margins.
+    // Blocks, fitted in their cells (one visibility look-up per block and state).
+    let mut shown: HashMap<(String, Vec<(String, String)>), CellVisibility> = HashMap::new();
+    let mut visibility = |cb: &CellBlock| -> CellVisibility {
+        let key = (cb.name.to_ascii_lowercase(), cb.props.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.clone())).collect());
+        shown.entry(key).or_insert_with(|| cadcraft_doc::cell_visibility(d, cb)).clone()
+    };
+    // A cell's own alignment and margins over its cell style's (margins scale with the table).
+    let look = |a: &Anchor, cs: &CellStyle| -> (u8, f64, f64, u16) {
+        let l = t.cells.get(a.row).and_then(|row| row.get(a.col)).and_then(|c| c.look).map(|l| l.sanitized()).unwrap_or_default();
+        (
+            l.align.unwrap_or(cs.align).clamp(1, 9),
+            l.margin_h.map_or(cs.margin_h, |m| m * k),
+            l.margin_v.map_or(cs.margin_v, |m| m * k),
+            l.rotation.unwrap_or(0),
+        )
+    };
     for a in &anchors {
-        let Some(cell) = t.cells.get(a.row).and_then(|row| row.get(a.col)).filter(|c| !c.text.is_empty()) else { continue };
+        let Some(cb) = t.cells.get(a.row).and_then(|row| row.get(a.col)).and_then(|c| c.block.as_ref()) else { continue };
+        let Some(cs) = styles.get(a.style) else { continue };
+        let (align, margin_h, margin_v, _) = look(a, cs);
+        let (x0, x1, y0, y1) = (x_at(a.col), x_at(a.col + a.cols), y_at(a.row), y_at(a.row + a.rows));
+        let (min, max) = (p(x0, y1), p(x1, y0));
+        if let Some(block) = cadcraft_doc::place_cell_block(d, cb, visibility(cb), min, max, Vec2::new(margin_h, margin_v), align) {
+            g.blocks.push(TableBlock { row: a.row, col: a.col, block });
+        }
+    }
+    // Texts at their alignment point inside the margins (a cell with a block shows the block).
+    for a in &anchors {
+        let Some(cell) = t.cells.get(a.row).and_then(|row| row.get(a.col)).filter(|c| !c.text.is_empty() && c.block.is_none()) else { continue };
         let Some(cs) = styles.get(a.style) else { continue };
         let (x0, x1, y0, y1) = (x_at(a.col), x_at(a.col + a.cols), y_at(a.row), y_at(a.row + a.rows));
-        let attach = cs.align.clamp(1, 9);
-        let x = match (attach - 1) % 3 {
-            0 => x0 + cs.margin_h,
-            1 => (x0 + x1) / 2.0,
-            _ => x1 - cs.margin_h,
-        };
-        let y = match (attach - 1) / 3 {
-            0 => y0 + cs.margin_v,
-            1 => (y0 + y1) / 2.0,
-            _ => y1 - cs.margin_v,
-        };
+        let (attach, mh, mv, rotation) = look(a, cs);
+        let (min, max) = (p(x0, y1), p(x1, y0));
+        let at = text_anchor(min, max, attach, mh, mv, rotation);
+        // Along the text: the cell's width, or its height for vertical text.
+        let along = if rotation % 180 == 0 { x1 - x0 } else { y1 - y0 };
         g.texts.push(TableText {
             row: a.row,
             col: a.col,
-            at: p(x, y),
+            at,
             attach,
+            rotation: f64::from(rotation).to_radians(),
             height: cell.text_height.filter(|h| h.is_finite() && *h > 0.0).map_or(cs.text_height, |h| h * k),
             color: cs.text_color,
             style: cs.text_style.clone(),
             text: cell.text.clone(),
+            width: (along - 2.0 * mh).max(0.0),
+            pad: mv,
         });
     }
     g
+}
+
+/// The alignment point of a cell's text in the cell `min` … `max` (world): `attach` (MTEXT
+/// numbering) read in the text's own frame, turned by `rotation` degrees, `mh` from the cell's
+/// sides along the text and `mv` across it.
+fn text_anchor(min: Vec2, max: Vec2, attach: u8, mh: f64, mv: f64, rotation: u16) -> Vec2 {
+    let (h, v) = (usize::from((attach.clamp(1, 9) - 1) % 3), usize::from((attach.clamp(1, 9) - 1) / 3));
+    let c = (min + max) * 0.5;
+    let pick = |[first, mid, last]: [f64; 3], i: usize| match i {
+        0 => first,
+        2 => last,
+        _ => mid,
+    };
+    match rotation {
+        // Reading upwards: the text's left is the cell's bottom, its top the cell's left.
+        90 => Vec2::new(pick([min.x + mv, c.x, max.x - mv], v), pick([min.y + mh, c.y, max.y - mh], h)),
+        180 => Vec2::new(pick([max.x - mh, c.x, min.x + mh], h), pick([min.y + mv, c.y, max.y - mv], v)),
+        // Reading downwards: the text's left is the cell's top, its top the cell's right.
+        270 => Vec2::new(pick([max.x - mv, c.x, min.x + mv], v), pick([max.y - mh, c.y, min.y + mh], h)),
+        _ => Vec2::new(pick([min.x + mh, c.x, max.x - mh], h), pick([max.y - mv, c.y, min.y + mv], v)),
+    }
 }
 
 /// A cell style colour as drawn: ByBlock / ByLayer take the table's colour.
@@ -331,8 +407,48 @@ fn style_ink(c: Color, table: Ink) -> Ink {
     }
 }
 
+/// The heights the rows of table `t` need for their text, for [`Table::fit_rows`]: each
+/// row's own cells, and (first row, rows, height) of cells merged over several rows. Text
+/// running across the row counts; vertical text wraps along the row instead.
+pub fn table_row_needs(d: &Drawing, t: &Table) -> (Vec<f64>, Vec<(usize, usize, f64)>) {
+    let mut needs = vec![0.0; t.row_heights.len().min(10_000)];
+    let mut spans = Vec::new();
+    for tx in &layout(d, t).texts {
+        if tx.rotation.sin().abs() > 0.5 {
+            continue;
+        }
+        let need = text_layout(d, tx).bounds.height() + 2.0 * tx.pad;
+        if !need.is_finite() {
+            continue;
+        }
+        let rows = t.cells.get(tx.row).and_then(|r| r.get(tx.col)).and_then(|c| c.merged).map_or(1, |(rs, _)| rs.max(1) as usize);
+        if rows > 1 {
+            spans.push((tx.row, rows, need));
+        } else if let Some(n) = needs.get_mut(tx.row) {
+            *n = f64::max(*n, need);
+        }
+    }
+    (needs, spans)
+}
+
+/// A cell's text laid out as MTEXT (`\P`, `{\Q15;…}`, `\F…;`) at the cell's alignment
+/// point (its numbering is MTEXT's attachment), in its text style's font.
+fn text_layout(d: &Drawing, tx: &TableText) -> cadcraft_fonts::MTextLayout {
+    let ts = crate::text_style(d, &tx.style);
+    let mp = cadcraft_fonts::MTextParams {
+        attach: tx.attach,
+        width: tx.width,
+        rotation: tx.rotation,
+        font: cadcraft_fonts::TextFont::resolve(&ts.font),
+        width_factor: ts.width_factor,
+        oblique: ts.oblique,
+        ..cadcraft_fonts::MTextParams::new(tx.at, tx.height)
+    };
+    cadcraft_fonts::layout_mtext_with(&tx.text, &mp)
+}
+
 /// Draw a table into the display list.
-pub(crate) fn draw(b: &mut Builder, ctx: &Ctx, t: &Table, rgb: Ink, lw: f32) {
+pub(crate) fn draw(b: &mut Builder, ctx: &Ctx, e: &cadcraft_doc::Entity, t: &Table, rgb: Ink, lw: f32) {
     let g = table_geometry(ctx.d, t);
     if b.opts.fill {
         for f in &g.fills {
@@ -348,22 +464,14 @@ pub(crate) fn draw(b: &mut Builder, ctx: &Ctx, t: &Table, rgb: Ink, lw: f32) {
         };
         b.polyline(ctx, style_ink(l.color, rgb), w, &[l.a, l.b]);
     }
+    for bl in &g.blocks {
+        crate::insert_shown(b, ctx, e, &bl.block.insert, rgb, Some(&bl.block.visibility));
+    }
     if !b.opts.text {
         return;
     }
     for tx in &g.texts {
-        let ts = crate::text_style(ctx.d, &tx.style);
-        let font = cadcraft_fonts::TextFont::resolve(&ts.font);
-        // Cell content is MTEXT (`\P`, `{\Q15;…}`, `\F…;`): laid out as such, at the cell's
-        // alignment point (its numbering is MTEXT's attachment).
-        let mp = cadcraft_fonts::MTextParams {
-            attach: tx.attach,
-            font,
-            width_factor: ts.width_factor,
-            oblique: ts.oblique,
-            ..cadcraft_fonts::MTextParams::new(tx.at, tx.height)
-        };
-        let layout = cadcraft_fonts::layout_mtext_with(&tx.text, &mp);
+        let layout = text_layout(ctx.d, tx);
         for piece in &layout.pieces {
             b.shaped(ctx, style_ink(tx.color, rgb), lw, &piece.shaped);
         }

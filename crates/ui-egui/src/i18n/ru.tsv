@@ -719,6 +719,10 @@
 	Set Layer Properties	Задать свойства слоя
 	Set Properties	Задать свойства
 	Set Table Cell	Задать ячейку таблицы
+	Insert Block in Table Cell	Вставить блок в ячейку таблицы
+	Format Table Cells	Форматировать ячейки таблицы
+	Table Column Width and Row Height	Ширина столбца и высота строки таблицы
+	Set Table Cell Borders	Задать границы ячеек таблицы
 	Set Variable	Задать переменную
 	Set View	Задать вид
 	Share	Поделиться
@@ -990,6 +994,46 @@
 	−Bin	−двоич.
 	−LOC	−строк
 	⌘↩ to finish	⌘↩ для завершения
+# Table cells picked with the mouse: the right-click menu.
+	Alignment	Выравнивание
+	Top Left	Сверху слева
+	Top Center	Сверху по центру
+	Top Right	Сверху справа
+	Middle Left	Посередине слева
+	Middle Center	Посередине по центру
+	Middle Right	Посередине справа
+	Bottom Left	Снизу слева
+	Bottom Center	Снизу по центру
+	Bottom Right	Снизу справа
+	Borders	Границы
+	Text Rotation	Поворот текста
+	Vertical, Upwards	Вертикально, снизу вверх
+	Vertical, Downwards	Вертикально, сверху вниз
+	Remove Formatting	Сбросить форматирование
+	Edit Text	Редактировать текст
+	Insert Block...	Вставить блок...
+	Delete Content	Удалить содержимое
+	Insert Above	Вставить выше
+	Insert Below	Вставить ниже
+	Delete Rows	Удалить строки
+	Insert Left	Вставить слева
+	Insert Right	Вставить справа
+	Delete Columns	Удалить столбцы
+	Rows	Строки
+	Columns	Столбцы
+	All Borders	Все границы
+	Outside Borders	Внешние границы
+	Inside Borders	Внутренние границы
+	Inside Horizontal	Внутренние горизонтальные
+	Inside Vertical	Внутренние вертикальные
+	Top Border	Верхняя граница
+	Bottom Border	Нижняя граница
+	Left Border	Левая граница
+	Right Border	Правая граница
+	Hidden	Скрыть
+	As the Cell Style	Как в стиле ячейки
+	Column Width and Row Height...	Ширина столбцов и высота строк...
+	Other...	Другая...
 @plural	{n} commit	{n} коммит|{n} коммита|{n} коммитов
 @plural	{n} contributor	{n} участник|{n} участника|{n} участников
 	Drawing as bytes	Чертеж как байты
@@ -1008,3 +1052,11 @@
 	Sheet Books to PDF...	Книги листов в PDF...
 	Not a number or distance: {text}	Не число и не расстояние: {text}
 	Query Texts	Запрос текстов
+	Freely	Свободно
+	In Steps of 8	Кратно 8
+	In Steps of...	Кратно шагу...
+	Fixed Height	Фиксированная высота
+	Rows Grow for Text	Рост строк под текст
+	Copy Table Cells	Копировать ячейки таблицы
+	Paste Table Cells	Вставить ячейки таблицы
+	Clear Table Cells	Очистить ячейки таблицы

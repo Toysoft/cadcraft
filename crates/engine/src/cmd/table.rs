@@ -3,6 +3,8 @@
 
 mod breaks;
 mod cells;
+mod clip;
+mod content;
 pub(crate) mod formula;
 
 pub(crate) use cells::{recalc, tablestyle_cell_style};
@@ -24,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("table", "Table...", run_table)
             .menu(&["Draw", "Table..."])
             .alias(&["tb"])
-            .params("{at: [x,y], rows (data rows), cols, rowHeight?, colWidth?, cells?: [[text]], title?: text, header?: [text]}")
+            .params("{at: [x,y], rows (data rows), cols, rowHeight?, colWidth?, cells?: [[text]], title?: text, header?: [text], rowGrow?: free|fixed|step}")
             .interactive(|s| Ok(Box::new(TableM::new(s)))),
         CommandSpec::new("table.set", "Set Table Cell", run_set)
             .params("{handle, row, col, text? (text starting with = is a formula), formula?: \"=Sum(A2:A5)\"}"),
@@ -33,10 +35,12 @@ pub fn specs() -> Vec<CommandSpec> {
         CommandSpec::new("table.insertcol", "Insert Column", run_insert_col).params("{handle, col? (insert before; default: append), width?}"),
         CommandSpec::new("table.deletecol", "Delete Column", run_delete_col).params("{handle, col}"),
         CommandSpec::new("table.merge", "Merge Cells", run_merge).params("{handle, row, col, rows, cols}"),
-        CommandSpec::new("table.unmerge", "Unmerge Cells", run_unmerge).params("{handle, row, col}"),
+        CommandSpec::new("table.unmerge", "Unmerge Cells", run_unmerge).params("{handle, row, col, rows?, cols? (every merge meeting the range)}"),
     ]
     .into_iter()
     .chain(cells::specs())
+    .chain(content::specs())
+    .chain(clip::specs())
     .chain(breaks::specs())
     .collect()
 }
@@ -135,14 +139,29 @@ fn run_table(s: &mut Session, p: &Value) -> Result<Value> {
     let col_width = size_param("table", p, "colWidth", false)?;
     let header: Option<Vec<String>> =
         p.get("header").and_then(Value::as_array).map(|a| a.iter().map(|v| v.as_str().unwrap_or("").to_string()).collect());
+    let grow = row_grow_param(p).map_err(|m| bad("table", m))?;
     let st = style_of(s);
-    let t = make_table(&st, at, rows, cols, row_height, col_width, str_param(p, "title"), header, &cells);
+    let mut t = make_table(&st, at, rows, cols, row_height, col_width, str_param(p, "title"), header, &cells);
+    t.row_grow = grow.unwrap_or_default();
+    fit_rows(s.doc()?, &mut t);
     let h = s.add_entity(EntityKind::Table(t))?;
     Ok(json!({ "handle": h.hex() }))
 }
 
 /// Modify the table `handle` with `f`.
 fn edit(s: &mut Session, p: &Value, id: &str, f: impl FnOnce(&mut Table) -> std::result::Result<(), String>) -> Result<Value> {
+    let (h, mut t) = find(s, p, id)?;
+    normalize(&mut t);
+    f(&mut t).map_err(|m| bad(id, m))?;
+    let st = cadcraft_render::table_style_of(s.doc()?, &t);
+    formula::recalc(&mut t, &st);
+    fit_rows(s.doc()?, &mut t);
+    s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::Table(t))?;
+    Ok(json!({ "handle": h.hex() }))
+}
+
+/// The table `handle` names (else the selected one), and a copy of it.
+fn find(s: &Session, p: &Value, id: &str) -> Result<(Handle, Table)> {
     let h = p
         .get("handle")
         .and_then(|v| v.as_str().and_then(Handle::parse_hex).or_else(|| v.as_u64().map(Handle)))
@@ -150,22 +169,45 @@ fn edit(s: &mut Session, p: &Value, id: &str, f: impl FnOnce(&mut Table) -> std:
             s.selection().into_iter().find(|h| s.doc().ok().and_then(|d| d.entity(*h)).is_some_and(|e| matches!(e.kind, EntityKind::Table(_))))
         })
         .ok_or_else(|| bad(id, "`handle` of a table is required"))?;
-    let mut t = match s.doc()?.entity(h).map(|e| &e.kind) {
-        Some(EntityKind::Table(t)) => t.clone(),
-        _ => return Err(bad(id, "object is not a table")),
-    };
-    normalize(&mut t);
-    f(&mut t).map_err(|m| bad(id, m))?;
-    let st = cadcraft_render::table_style_of(s.doc()?, &t);
-    formula::recalc(&mut t, &st);
-    s.doc_mut()?.modify_entity(h, |e| e.kind = EntityKind::Table(t))?;
-    Ok(json!({ "handle": h.hex() }))
+    match s.doc()?.entity(h).map(|e| &e.kind) {
+        Some(EntityKind::Table(t)) => Ok((h, t.clone())),
+        _ => Err(bad(id, "object is not a table")),
+    }
+}
+
+/// `rowGrow`: "free", "fixed" or a step (a number more than 0).
+pub(crate) fn row_grow_param(p: &Value) -> std::result::Result<Option<cadcraft_doc::RowGrow>, String> {
+    use cadcraft_doc::RowGrow;
+    match p.get("rowGrow") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let g = match v.as_str().map(|s| s.trim().to_ascii_lowercase()) {
+                Some(s) if s == "free" => Some(RowGrow::Free),
+                Some(s) if s == "fixed" || s == "off" => Some(RowGrow::Fixed),
+                Some(s) => s.parse::<f64>().ok().map(RowGrow::Step),
+                None => v.as_f64().map(RowGrow::Step),
+            };
+            g.filter(|g| !matches!(g, RowGrow::Step(s) if !(s.is_finite() && *s > 0.0 && *s <= 1e9)))
+                .map(Some)
+                .ok_or_else(|| format!("invalid rowGrow {v} (free, fixed or a step more than 0)"))
+        }
+    }
+}
+
+/// Grow (or shrink back) the rows of `t` to fit their text, by the table's row growth.
+pub(crate) fn fit_rows(d: &cadcraft_doc::Drawing, t: &mut Table) {
+    let (needs, spans) = cadcraft_render::table_row_needs(d, t);
+    t.fit_rows(&needs, &spans);
 }
 
 /// Make the cell grid rows × cols.
 fn normalize(t: &mut Table) {
     let rows = t.row_heights.len().min(MAX_ROWS);
     let cols = t.col_widths.len().min(MAX_COLS);
+    if t.row_min.len() != t.row_heights.len() {
+        t.row_min.clear();
+    }
+    t.row_min.truncate(rows);
     t.row_heights.truncate(rows);
     t.col_widths.truncate(cols);
     t.cells.resize_with(rows, Vec::new);
@@ -233,6 +275,8 @@ fn run_set(s: &mut Session, p: &Value) -> Result<Value> {
             .map(|(ar, ac, ..)| (ar, ac))
             .unwrap_or((r, c));
         if let Some(cell) = t.cells.get_mut(r).and_then(|row| row.get_mut(c)) {
+            // Text replaces a block (a cell holds one or the other).
+            cell.block = None;
             match formula {
                 Some(f) => cell.formula = Some(if f.starts_with('=') { f } else { format!("={f}") }),
                 None => {
@@ -274,6 +318,9 @@ fn run_insert_row(s: &mut Session, p: &Value) -> Result<Value> {
                 }
             })
             .collect();
+        if !t.row_min.is_empty() {
+            t.row_min.insert(r, h);
+        }
         t.row_heights.insert(r, h);
         t.cells.insert(r, vec![TableCell::default(); t.col_widths.len()]);
         if r < t.row_styles.len() {
@@ -309,6 +356,9 @@ fn run_delete_row(s: &mut Session, p: &Value) -> Result<Value> {
             } else {
                 a.push((ar, ac, rs, cs));
             }
+        }
+        if r < t.row_min.len() {
+            t.row_min.remove(r);
         }
         t.row_heights.remove(r);
         t.cells.remove(r);
@@ -401,17 +451,25 @@ fn run_merge(s: &mut Session, p: &Value) -> Result<Value> {
         let overlaps = |&(ar, ac, ars, acs): &(usize, usize, usize, usize)| ar < r + rs && r < ar + ars && ac < c + cs && c < ac + acs;
         let mut a: Vec<_> = anchors(t).into_iter().filter(|x| !overlaps(x)).collect();
         let mut texts = Vec::new();
+        let mut block = None;
         for rr in r..r + rs {
             for cc in c..c + cs {
-                if let Some(cell) = t.cells.get_mut(rr).and_then(|row| row.get_mut(cc))
-                    && !cell.text.is_empty()
-                {
-                    texts.push(std::mem::take(&mut cell.text));
+                if let Some(cell) = t.cells.get_mut(rr).and_then(|row| row.get_mut(cc)) {
+                    if !cell.text.is_empty() {
+                        texts.push(std::mem::take(&mut cell.text));
+                    }
+                    // The first block goes to the anchor (a cell shows one block).
+                    if (rr, cc) != (r, c) && block.is_none() {
+                        block = cell.block.take();
+                    }
                 }
             }
         }
         if let Some(cell) = t.cells.get_mut(r).and_then(|row| row.get_mut(c)) {
             cell.text = texts.join(" ");
+            if cell.block.is_none() && cell.text.is_empty() {
+                cell.block = block;
+            }
         }
         a.push((r, c, rs, cs));
         set_anchors(t, &a);
@@ -422,7 +480,10 @@ fn run_merge(s: &mut Session, p: &Value) -> Result<Value> {
 fn run_unmerge(s: &mut Session, p: &Value) -> Result<Value> {
     edit(s, p, "table.unmerge", |t| {
         let (r, c) = cell_at(p, t)?;
-        let a: Vec<_> = anchors(t).into_iter().filter(|&(ar, ac, rs, cs)| !(r >= ar && r < ar + rs && c >= ac && c < ac + cs)).collect();
+        // Every merge meeting the range (one cell by default).
+        let rs = usize_param(p, "rows").unwrap_or(1).max(1).min(t.cells.len() - r);
+        let cs = usize_param(p, "cols").unwrap_or(1).max(1).min(t.col_widths.len() - c);
+        let a: Vec<_> = anchors(t).into_iter().filter(|&(ar, ac, ars, acs)| !(ar < r + rs && r < ar + ars && ac < c + cs && c < ac + acs)).collect();
         set_anchors(t, &a);
         Ok(())
     })

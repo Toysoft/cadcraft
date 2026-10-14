@@ -127,9 +127,41 @@ fn tabledit_at_the_command_line() {
     s.cmdline("1,-3.5").unwrap();
     s.cmdline("=Sum(A1:A3)").unwrap();
     assert_eq!(text(&s, &h, 3, 0), "6");
+    // A4 was the last row's first cell: TABLEDIT moved on to B4; Esc ends it.
+    assert!(s.prompting());
+    s.cancel();
+    assert!(!s.prompting());
+    assert_eq!(text(&s, &h, 3, 0), "6");
     // JSON form with a point.
     s.execute("tabledit", &json!({ "at": [4, -0.5], "text": "hello" })).unwrap();
     assert_eq!(text(&s, &h, 0, 1), "hello");
+}
+
+#[test]
+fn tabledit_moves_on_from_cell_to_cell_in_one_undo_step() {
+    let (mut s, h) = session();
+    // A1 (y 0..-1): type, Enter moves right, an empty Enter skips, and the row wraps.
+    s.cmdline("tabledit").unwrap();
+    s.cmdline("1,-0.5").unwrap();
+    s.cmdline("a").unwrap();
+    s.cmdline("b").unwrap();
+    s.cmdline("").unwrap();
+    s.cmdline("d").unwrap();
+    s.cancel();
+    assert!(!s.prompting());
+    let t = table(&s, &h);
+    assert_eq!((t.cells[0][0].text.as_str(), t.cells[0][1].text.as_str()), ("a", "b"));
+    assert_eq!((t.cells[1][0].text.as_str(), t.cells[1][1].text.as_str()), ("2", "d"));
+    // One undo step for the whole entry.
+    s.execute("undo", &json!({})).unwrap();
+    let t = table(&s, &h);
+    assert_eq!((t.cells[0][0].text.as_str(), t.cells[0][1].text.as_str(), t.cells[1][1].text.as_str()), ("1", "", ""));
+    // Past the last cell the command ends by itself.
+    s.cmdline("tabledit").unwrap();
+    s.cmdline("4,-3.5").unwrap();
+    s.cmdline("end").unwrap();
+    assert!(!s.prompting());
+    assert_eq!(text(&s, &h, 3, 1), "end");
 }
 
 #[test]

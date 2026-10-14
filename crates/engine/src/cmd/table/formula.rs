@@ -695,9 +695,50 @@ pub fn shift_refs(formula: &str, shift: Shift) -> String {
     out
 }
 
+/// `formula` copied `dr` rows and `dc` columns away: its relative references move with it
+/// (`A1` → `B2` for 1, 1), `$`-fixed parts stay; a reference moved off the table's top or left
+/// becomes `#REF`.
+pub fn offset_refs(formula: &str, dr: isize, dc: isize) -> String {
+    let src = formula.trim();
+    let body_start = src.len() - src.strip_prefix('=').unwrap_or(src).len();
+    let body = src.get(body_start..).unwrap_or("");
+    let Ok(toks) = tokens(body) else { return formula.to_string() };
+    let mut out = String::from(src.get(..body_start).unwrap_or(""));
+    let mut last = 0;
+    for (tok, span) in &toks {
+        let Tok::Cell(r, c) = *tok else { continue };
+        let word = body.get(span.clone()).unwrap_or("");
+        let fixed_col = word.starts_with('$');
+        let fixed_row = word.trim_start_matches('$').contains('$');
+        let r2 = if fixed_row { Some(r) } else { r.checked_add_signed(dr) };
+        let c2 = if fixed_col { Some(c) } else { c.checked_add_signed(dc) };
+        out.push_str(body.get(last..span.start).unwrap_or(""));
+        match (r2, c2) {
+            (Some(r2), Some(c2)) => {
+                out.push_str(if fixed_col { "$" } else { "" });
+                out.push_str(&col_name(c2));
+                out.push_str(if fixed_row { "$" } else { "" });
+                out.push_str(&(r2 + 1).to_string());
+            }
+            _ => out.push_str("#REF"),
+        }
+        last = span.end;
+    }
+    out.push_str(body.get(last..).unwrap_or(""));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copied_formulas_move_their_relative_references() {
+        assert_eq!(offset_refs("=Sum(A1:A3)*B$2+$C4", 1, 1), "=Sum(B2:B4)*C$2+$C5");
+        assert_eq!(offset_refs("=A1+1", -1, 0), "=#REF+1");
+        assert_eq!(offset_refs("=A1", 0, 0), "=A1");
+        assert_eq!(offset_refs("not (a formula", 3, 3), "not (a formula");
+    }
 
     #[test]
     fn names() {

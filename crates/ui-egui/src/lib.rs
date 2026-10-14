@@ -43,6 +43,7 @@ pub mod parametric;
 pub mod plotstyles;
 pub mod quick;
 pub mod shortcut_menus;
+pub mod table_cells;
 pub mod theme;
 pub mod viewcube;
 pub mod vpscale;

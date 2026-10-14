@@ -190,6 +190,28 @@ impl Table {
         None
     }
 
+    /// Where cell (`row`, `col`) is drawn: one rectangle per part showing its row (a repeated
+    /// label row is in several parts). Empty for a cell outside the table.
+    pub fn cell_rects(&self, row: usize, col: usize) -> Vec<Bounds2> {
+        if col >= self.col_widths.len() {
+            return Vec::new();
+        }
+        let x0: f64 = self.col_widths.iter().take(col).map(|w| size(*w)).sum();
+        let x1 = x0 + size(self.col_widths.get(col).copied().unwrap_or(0.0));
+        let mut out = Vec::new();
+        for part in self.parts() {
+            let mut y = 0.0;
+            for r in &part.rows {
+                let h = size(self.row_heights.get(*r).copied().unwrap_or(0.0));
+                if *r == row {
+                    out.push(Bounds2::from_points([part.origin + Vec2::new(x0, -y), part.origin + Vec2::new(x1, -y - h)]));
+                }
+                y += h;
+            }
+        }
+        out
+    }
+
     /// Grip points: the insertion point, then the origin of every further part.
     pub fn grip_points(&self) -> Vec<Vec2> {
         let mut g = vec![self.insert.xy()];

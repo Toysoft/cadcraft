@@ -425,6 +425,10 @@
 	Insert tab	Вставити табуляцію
 	Insert this block	Вставити цей блок
 	Insert Table Formula	Вставити формулу в таблицю
+	Insert Block in Table Cell	Вставити блок у комірку таблиці
+	Format Table Cells	Форматувати комірки таблиці
+	Table Column Width and Row Height	Ширина стовпця і висота рядка таблиці
+	Set Table Cell Borders	Задати межі комірок таблиці
 	Insertion	Точка вставлення
 	Insertion X	Вставлення X
 	Insertion Y	Вставлення Y
@@ -1209,6 +1213,46 @@
 	−Bin	−двійк.
 	−LOC	−рядків
 	⌘↩ to finish	⌘↩ для завершення
+# Table cells picked with the mouse: the right-click menu.
+	Alignment	Вирівнювання
+	Top Left	Угорі ліворуч
+	Top Center	Угорі по центру
+	Top Right	Угорі праворуч
+	Middle Left	Посередині ліворуч
+	Middle Center	Посередині по центру
+	Middle Right	Посередині праворуч
+	Bottom Left	Унизу ліворуч
+	Bottom Center	Унизу по центру
+	Bottom Right	Унизу праворуч
+	Borders	Межі
+	Text Rotation	Поворот тексту
+	Vertical, Upwards	Вертикально, знизу вгору
+	Vertical, Downwards	Вертикально, згори вниз
+	Remove Formatting	Скинути форматування
+	Edit Text	Редагувати текст
+	Insert Block...	Вставити блок...
+	Delete Content	Видалити вміст
+	Insert Above	Вставити вище
+	Insert Below	Вставити нижче
+	Delete Rows	Видалити рядки
+	Insert Left	Вставити ліворуч
+	Insert Right	Вставити праворуч
+	Delete Columns	Видалити стовпці
+	Rows	Рядки
+	Columns	Стовпці
+	All Borders	Усі межі
+	Outside Borders	Зовнішні межі
+	Inside Borders	Внутрішні межі
+	Inside Horizontal	Внутрішні горизонтальні
+	Inside Vertical	Внутрішні вертикальні
+	Top Border	Верхня межа
+	Bottom Border	Нижня межа
+	Left Border	Ліва межа
+	Right Border	Права межа
+	Hidden	Приховано
+	As the Cell Style	Як у стилі комірки
+	Column Width and Row Height...	Ширина стовпців і висота рядків...
+	Other...	Інша...
 @plural	{n} commit	{n} коміт|{n} коміти|{n} комітів
 @plural	{n} contributor	{n} учасник|{n} учасники|{n} учасників
 	Drawing as bytes	Креслення як байти
@@ -1330,3 +1374,11 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+	Freely	Вільно
+	In Steps of 8	Кратно 8
+	In Steps of...	Кратно кроку...
+	Fixed Height	Фіксована висота
+	Rows Grow for Text	Зростання рядків під текст
+	Copy Table Cells	Копіювати комірки таблиці
+	Paste Table Cells	Вставити комірки таблиці
+	Clear Table Cells	Очистити комірки таблиці

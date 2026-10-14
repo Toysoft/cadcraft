@@ -82,6 +82,11 @@ fn push(groups: &mut Vec<Vec<Entry>>, group: Vec<Entry>) {
 
 /// The idle menu's groups of entries (separated by lines).
 pub fn entries(app: &CadApp) -> Vec<Vec<Entry>> {
+    // Selected table cells: what can be done to them, then Undo/Redo and Pan/Zoom.
+    if let Some(mut cells) = crate::table_cells::entries(app) {
+        push(&mut cells, items(app, VIEW));
+        return cells;
+    }
     let mut groups = Vec::new();
     let mut first = Vec::new();
     if let Some(last) = app.session.last_command.as_deref().and_then(find_command) {
@@ -213,6 +218,8 @@ pub fn choose(app: &mut CadApp, id: &str) {
         }
     } else if let Some(s) = id.strip_prefix(SNAP) {
         choose_snap(app, s);
+    } else if let Some(a) = id.strip_prefix(crate::table_cells::CELL) {
+        crate::table_cells::act(app, a);
     } else {
         activate(app, id);
     }
