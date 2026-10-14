@@ -25,6 +25,16 @@ pub struct Remote {
     launch: bool,
 }
 
+/// True when the peer has neither closed the connection nor sent anything unasked (such as the app's idle-close notice).
+fn idle_and_open(reader: &BufReader<TcpStream>) -> bool {
+    let s = reader.get_ref();
+    if !reader.buffer().is_empty() || s.set_nonblocking(true).is_err() {
+        return false;
+    }
+    let idle = matches!(s.peek(&mut [0u8; 1]), Err(e) if e.kind() == std::io::ErrorKind::WouldBlock);
+    s.set_nonblocking(false).is_ok() && idle
+}
+
 /// How long a launched app has to open its control port.
 const LAUNCH_WAIT: Duration = Duration::from_secs(30);
 
@@ -84,6 +94,10 @@ impl Remote {
     }
     /// On failure the flag says whether the request may already have reached the server.
     fn roundtrip(&mut self, line: &str) -> Result<String, (std::io::Error, bool)> {
+        // The app closes a connection left idle too long; start a fresh one instead of sending into it.
+        if self.conn.as_ref().is_some_and(|(reader, _)| !idle_and_open(reader)) {
+            self.conn = None;
+        }
         if self.conn.is_none() {
             self.reach().map_err(|e| (e, false))?;
         }
@@ -378,6 +392,28 @@ mod tests {
         let err = remote.call("engine.execute", json!({"command": "circle", "params": {}})).unwrap_err();
         assert!(err.contains("may or may not have been applied"), "{err}");
         assert_eq!(server.join().unwrap(), 1);
+    }
+
+    /// A connection the app closed while idle (#937) is replaced before a call, not used for it.
+    #[test]
+    fn connection_closed_while_idle_is_replaced() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let server = std::thread::spawn(move || {
+            // Like the app: an idle-close notice, then the connection is closed.
+            let (mut idle, _) = listener.accept().unwrap();
+            writeln!(idle, "{}", json!({"ok": false, "error": "connection idle too long; closing it"})).unwrap();
+            drop(idle);
+            let (conn, _) = listener.accept().unwrap();
+            let mut line = String::new();
+            BufReader::new(conn.try_clone().unwrap()).read_line(&mut line).unwrap();
+            let mut out = conn;
+            writeln!(out, "{}", json!({"id": 1, "ok": true, "result": "drawn"})).unwrap();
+        });
+        let mut remote = Remote::connect(&addr).unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(remote.call("engine.execute", json!({"command": "circle", "params": {}})), Ok(json!("drawn")));
+        server.join().unwrap();
     }
 
     /// The app's timeout reply says whether the request can still run; the error passes that on (#345).

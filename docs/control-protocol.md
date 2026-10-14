@@ -3,6 +3,10 @@
 Start the desktop app with `--control PORT` (or `CADCRAFT_CONTROL_PORT=PORT`). It listens on
 `127.0.0.1:PORT` for JSON lines: one request per line, one reply per line. A port given with
 `--control` wins over the variable; a bare `--control` keeps the variable's port.
+At most 16 connections are served at once; a connection that sends nothing for 10 minutes (or whose
+reply can't be written for that long) is closed, so abandoned clients don't hold the slots. An idle
+one gets `{"ok": false, "error": "connection idle too long; closing it"}` first. Reconnect to continue
+(`cadcraft-cli mcp --connect` does so by itself).
 
 ```json
 {"id": 1, "method": "cmdline.input", "params": {"text": "circle 0,0 5"}}
