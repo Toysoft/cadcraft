@@ -4,16 +4,217 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
   <title>CADCraft</title>
-  <link data-trunk rel="rust" data-bin="cadcraft-web" data-wasm-opt="z" data-weak-refs />
+  <link data-trunk rel="rust" data-bin="cadcraft-web" data-wasm-opt="0" data-weak-refs />
   <style>
-    html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #22282f; }
-    #cadcraft_canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-    #cadcraft_loading { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: #b8b8b8; font: 14px system-ui, sans-serif; pointer-events: none; }
-  </style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #22282f;
+  }
+
+  body.cadcraft-mobile {
+    position: relative;
+    height: 100dvh;
+    overflow: hidden;
+  }
+
+  #cadcraft_canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  #cadcraft_loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #b8b8b8;
+    font: 14px system-ui, sans-serif;
+    pointer-events: none;
+  }
+
+  #mobile_command_bar {
+    display: none;
+  }
+
+  body.cadcraft-mobile #cadcraft_canvas {
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 58px;
+    width: 100%;
+    height: calc(100% - 58px);
+  }
+
+  body.cadcraft-mobile #mobile_command_bar {
+    display: flex;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 58px;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    gap: 6px;
+    align-items: center;
+    background: #303b4a;
+    border-top: 1px solid #566476;
+    z-index: 100;
+    font: 15px system-ui, sans-serif;
+  }
+
+  body.cadcraft-mobile #mobile_command_input {
+    flex: 1;
+    min-width: 0;
+    height: 42px;
+    box-sizing: border-box;
+    padding: 0 12px;
+    font-size: 16px;
+    color: white;
+    background: #192631;
+    border: 1px solid #61748b;
+    border-radius: 7px;
+    outline: none;
+  }
+
+  body.cadcraft-mobile #mobile_command_send,
+  body.cadcraft-mobile #mobile_command_escape {
+    height: 42px;
+    flex-shrink: 0;
+    border-radius: 7px;
+    color: white;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  body.cadcraft-mobile #mobile_command_send {
+    min-width: 58px;
+    background: #416a93;
+    border: none;
+  }
+
+  body.cadcraft-mobile #mobile_command_escape {
+    min-width: 48px;
+    background: #713c48;
+    border: 1px solid #9a6470;
+  }
+
+  @media (orientation: landscape) {
+    body.cadcraft-mobile #mobile_command_bar {
+      height: 46px;
+      padding: 3px 8px;
+    }
+
+    body.cadcraft-mobile #cadcraft_canvas {
+      bottom: 46px;
+      height: calc(100% - 46px);
+    }
+
+    body.cadcraft-mobile #mobile_command_input,
+    body.cadcraft-mobile #mobile_command_send,
+    body.cadcraft-mobile #mobile_command_escape {
+      height: 38px;
+    }
+  }
+
+
+</style>
 </head>
 <body>
+
+  <script>
+    if (new URLSearchParams(location.search).get("mobile") === "1") {
+      document.body.classList.add("cadcraft-mobile");
+    }
+  </script>
+
   <canvas id="cadcraft_canvas"></canvas>
   <div id="cadcraft_loading">Loading CADCraft&hellip;</div>
+
+  <form id="mobile_command_bar" autocomplete="off">
+    <input
+      id="mobile_command_input"
+      type="text"
+      placeholder="Command or coordinates..."
+      enterkeyhint="send"
+      autocomplete="off"
+      autocorrect="off"
+      autocapitalize="off"
+      spellcheck="false"
+      aria-label="CADCraft command"
+    />
+    <button id="mobile_command_escape" type="button" aria-label="Cancel command">Esc</button>
+    <button id="mobile_command_send" type="submit">Enter</button>
+  </form>
+
+  <script>
+    (() => {
+      const form = document.getElementById(
+        "mobile_command_bar"
+      );
+      const input = document.getElementById(
+        "mobile_command_input"
+      );
+      const escape = document.getElementById(
+        "mobile_command_escape"
+      );
+
+      function dispatchCommand(command) {
+        document.dispatchEvent(
+          new CustomEvent("cadcraft-mobile-command", {
+            detail: command
+          })
+        );
+      }
+
+      function dismissKeyboard() {
+        input.blur();
+      }
+
+      function submitCommand() {
+        const text = input.value;
+        input.value = "";
+
+        dispatchCommand(text);
+        dismissKeyboard();
+
+        console.debug("CADCraft mobile command submitted:", text);
+      }
+
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        submitCommand();
+      });
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          // requestSubmit dispatches the normal form submit event.
+          form.requestSubmit();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          input.value = "";
+          dispatchCommand("\u001b");
+          dismissKeyboard();
+        }
+      });
+
+      escape.addEventListener("click", (event) => {
+        event.preventDefault();
+        input.value = "";
+        dispatchCommand("\u001b");
+        dismissKeyboard();
+      });
+    })();
+  </script>
+
 </body>
 </html>

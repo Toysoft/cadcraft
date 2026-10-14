@@ -673,7 +673,8 @@ fn draw_grid(app: &CadApp, p: &egui::Painter, xf: &Xf) {
         let x1 = (wb.max.x / minor).ceil() as i64;
         let y0 = (wb.min.y / minor).floor() as i64;
         let y1 = (wb.max.y / minor).ceil() as i64;
-        if (x1 - x0) < 2000 && (y1 - y0) < 2000 {
+        if (0..2000).contains(&(i128::from(x1) - i128::from(x0)))
+            && (0..2000).contains(&(i128::from(y1) - i128::from(y0))) {
             for i in x0..=x1 {
                 let x = i as f64 * minor;
                 let is_major = (x / major).round() * major - x == 0.0 || ((x / major) - (x / major).round()).abs() < 1e-6;

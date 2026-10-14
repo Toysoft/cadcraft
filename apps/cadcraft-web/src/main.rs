@@ -20,6 +20,58 @@ mod web {
     use cadcraft_ui_egui::{CadApp, Services};
     use wasm_bindgen::JsCast as _;
 
+
+    thread_local! {
+        static MOBILE_COMMANDS:
+            std::cell::RefCell<Vec<String>> =
+            std::cell::RefCell::new(Vec::new());
+    }
+
+    /// Listen for commands submitted by the mobile HTML input.
+    fn register_mobile_commands(ctx: &egui::Context) {
+        let Some(document) =
+            web_sys::window().and_then(|w| w.document())
+        else {
+            return;
+        };
+
+        let ctx = ctx.clone();
+
+        let callback =
+            wasm_bindgen::closure::Closure::<
+                dyn FnMut(web_sys::Event)
+            >::wrap(Box::new(move |event: web_sys::Event| {
+                let Some(event) =
+                    event.dyn_ref::<web_sys::CustomEvent>()
+                else {
+                    return;
+                };
+
+                let Some(command) = event.detail().as_string()
+                else {
+                    return;
+                };
+
+                log::info!("Mobile command event received: {}", command);
+
+                MOBILE_COMMANDS.with(|queue| {
+                    queue.borrow_mut().push(command);
+                });
+
+                ctx.request_repaint();
+            }));
+
+        if document
+            .add_event_listener_with_callback(
+                "cadcraft-mobile-command",
+                callback.as_ref().unchecked_ref(),
+            )
+            .is_ok()
+        {
+            callback.forget();
+        }
+    }
+
     const CANVAS_ID: &str = "cadcraft_canvas";
     const LOADING_ID: &str = "cadcraft_loading";
 
@@ -33,12 +85,52 @@ mod web {
             self.1.take_dropped(ctx);
             self.1.drain(&mut self.0);
             self.0.system_animations = self.3.as_ref().map(|reduced| !reduced.matches());
+
+            let commands = MOBILE_COMMANDS.with(|queue| {
+                std::mem::take(&mut *queue.borrow_mut())
+            });
+
+            for command in commands {
+                log::info!("Executing mobile command: {}", command);
+                self.0.cmd.buffer = command;
+                cadcraft_ui_egui::cmdline::submit(&mut self.0);
+                log::info!("Mobile command submission completed");
+            }
+
             self.0.logic(ctx);
             if let Some((bridge, reported)) = &self.2 {
                 bridge.report_dirty(&self.0, reported);
             }
         }
         fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+            // Translate mobile Esc into a real egui key event.
+            // Normal command submissions remain queued for logic().
+            let mut escape_count = 0usize;
+
+            MOBILE_COMMANDS.with(|queue| {
+                let mut queue = queue.borrow_mut();
+
+                queue.retain(|command| {
+                    if command == "\u{1b}" {
+                        escape_count += 1;
+                        false
+                    } else {
+                        true
+                    }
+                });
+            });
+
+            for _ in 0..escape_count {
+                log::info!("Mobile Escape received by Rust");
+                raw.events.push(egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::default(),
+                });
+            }
+
             self.0.raw_input_hook(raw);
             cadcraft_ui_egui::cmdline::capture_tab(ctx, raw);
         }
@@ -118,7 +210,14 @@ mod web {
                     Box::new(move |cc| {
                         // Embedded, the parent sends the drawing: start on the Start tab, not Drawing1.
                         let session = if app_bridge.is_some() { Session::empty() } else { Session::new() };
+                        cc.egui_ctx.data_mut(|d| {
+                            d.insert_temp(
+                                egui::Id::new("cadcraft-mobile-mode"),
+                                query_param("mobile").as_deref() == Some("1"),
+                            );
+                        });
                         let mut app = CadApp::new(session, services());
+                        register_mobile_commands(&cc.egui_ctx);
                         app.system_languages =
                             web_sys::window().map(|w| w.navigator().languages().iter().filter_map(|v| v.as_string()).collect()).unwrap_or_default();
                         if let Some(profile) = cc.storage.and_then(|s| s.get_string(cadcraft_ui_egui::options::PROFILE_KEY)) {
