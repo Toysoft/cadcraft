@@ -308,7 +308,9 @@ enum StretchPhase {
 /// STRETCH: "Select objects" repeats until Enter. Crossing windows (implied right to left, or after
 /// `C`), windows (left to right, or after `W`) and polygons (`CP`, `WP`) select objects and mark
 /// the area whose vertices move; objects picked one at a time (or by a fence, `F`, or
-/// All/Last/Previous) move whole. Then the base point or Displacement, and the second point.
+/// All/Last/Previous) move whole. A pickfirst selection skips "Select objects": the windows that
+/// selected it with no command running mark the area, and its picked objects move whole. Then
+/// the base point or Displacement, and the second point.
 #[derive(Default)]
 struct StretchM {
     phase: StretchPhase,
@@ -477,6 +479,20 @@ impl Interactive for StretchM {
         "STRETCH"
     }
     fn begin(&mut self, s: &mut Session) -> Result<Step> {
+        // A pickfirst selection is stretched at once: the vertices inside the windows that
+        // selected its objects move, and objects picked one at a time move whole (#832).
+        let pre = s.selection();
+        if !pre.is_empty() && s.settings.pickfirst {
+            let windows = s.selection_windows();
+            let windowed: std::collections::HashSet<Handle> = windows.iter().flat_map(|(_, hs)| hs.iter().copied()).collect();
+            self.windows = windows.into_iter().map(|(bx, _)| StretchArea::Box(bx)).collect();
+            self.whole = pre.iter().copied().filter(|h| !windowed.contains(h)).collect();
+            self.objs = pre;
+            s.remember_selection(&self.objs);
+            s.echo(format!("{} found", self.objs.len()));
+            self.phase = StretchPhase::Base;
+            return Ok(Step::Continue);
+        }
         s.set_selection(Vec::new());
         s.echo("Select objects to stretch by crossing-window or crossing-polygon...");
         Ok(Step::Continue)

@@ -199,6 +199,57 @@ fn move_with_pickfirst_and_window_selection() {
     assert!(g[1].near(Vec2::new(5.0, 5.0), 1e-9));
 }
 
+/// #832: a crossing window drawn with no command running, then STRETCH, stretches like
+/// STRETCH's own crossing window: only the vertices inside move. An object then added by a
+/// pick moves whole, and a selection made by picks alone moves whole.
+#[test]
+fn stretch_uses_a_pickfirst_crossing_window() {
+    let rect = |s: &mut Session| {
+        s.cmdline("PLINE 0,0 10,0 10,5 0,5 C").unwrap();
+        s.doc().unwrap().model.last().unwrap().handle
+    };
+    let verts = |s: &Session, h: Handle| -> Vec<(f64, f64)> {
+        match &s.doc().unwrap().entity(h).unwrap().kind {
+            EntityKind::LwPolyline(p) => p.vertices.iter().map(|v| (v.p.x, v.p.y)).collect(),
+            _ => panic!(),
+        }
+    };
+    let mut s = Session::new();
+    s.viewport_px = (1000.0, 1000.0);
+    s.state_mut().unwrap().set_view(View { center: Vec2::new(5.0, 2.5), height: 20.0 });
+    let a = rect(&mut s);
+    s.execute("circle", &json!({"center": [30, 0], "radius": 1})).unwrap();
+    let c = s.doc().unwrap().model.last().unwrap().handle;
+    // Right to left over the rectangle's right side: a crossing window.
+    s.idle_click(Vec2::new(12.0, 6.0), false).unwrap();
+    s.idle_click(Vec2::new(8.0, -1.0), false).unwrap();
+    assert_eq!(s.selection(), vec![a]);
+    // The circle joins by a pick.
+    s.idle_click(Vec2::new(31.0, 0.0), false).unwrap();
+    assert_eq!(s.selection(), vec![a, c]);
+    s.cmdline("STRETCH").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("5,0").unwrap();
+    assert!(s.running.is_none(), "{}", s.prompt_text());
+    assert_eq!(verts(&s, a), [(0.0, 0.0), (15.0, 0.0), (15.0, 5.0), (0.0, 5.0)]);
+    match &s.doc().unwrap().entity(c).unwrap().kind {
+        EntityKind::Circle(ci) => assert!((ci.center.x - 35.0).abs() < 1e-9, "the picked circle moves whole"),
+        _ => panic!(),
+    }
+
+    // Picked, not windowed: moves whole.
+    let mut s = Session::new();
+    s.viewport_px = (1000.0, 1000.0);
+    s.state_mut().unwrap().set_view(View { center: Vec2::new(5.0, 2.5), height: 20.0 });
+    let b = rect(&mut s);
+    s.idle_click(Vec2::new(10.0, 2.0), false).unwrap();
+    assert_eq!(s.selection(), vec![b]);
+    s.cmdline("STRETCH").unwrap();
+    s.cmdline("0,0").unwrap();
+    s.cmdline("5,0").unwrap();
+    assert_eq!(verts(&s, b), [(5.0, 0.0), (15.0, 0.0), (15.0, 5.0), (5.0, 5.0)]);
+}
+
 #[test]
 fn erase_all_and_selection_keywords() {
     let mut s = Session::new();
