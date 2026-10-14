@@ -411,7 +411,8 @@ impl CadApp {
 
     /// Open the drawing at `path`. Natively the file is read on a worker thread while an
     /// "Opening ..." card shows ([`opening`]); [`Self::finish_opening`] adds it when ready. On the
-    /// web it opens at once.
+    /// web it opens at once. An already open drawing is selected without re-reading it, retaining
+    /// its unsaved edits and view. Finder adapters and window drops use this same entry point.
     pub fn open_path(&mut self, path: &str) {
         // A LISP file (dropped on the window): loaded as APPLOAD loads it.
         if is_lisp_file(path) {
@@ -419,6 +420,9 @@ impl CadApp {
                 Some(text) => self.load_lisp(path, &text),
                 None => self.open_failed(format!("APPLOAD: can't read {path}")),
             }
+            return;
+        }
+        if self.select_open_drawing(path) {
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -435,7 +439,11 @@ impl CadApp {
     /// Add the files whose background read has finished; report the ones that failed as a failed
     /// OPEN is reported. Called every frame.
     pub fn finish_opening(&mut self) {
-        for (_, outcome) in self.opening.poll() {
+        for (path, outcome) in self.opening.poll() {
+            // A drawing may have been opened or saved at this path while the read was pending.
+            if self.select_open_drawing(&path) {
+                continue;
+            }
             let r = match outcome {
                 Ok(f) => self.session.finish_open(f).map_err(|e| e.to_string()),
                 Err(e) => Err(e),
@@ -445,6 +453,22 @@ impl CadApp {
             }
             self.opened(r);
         }
+    }
+
+    /// Reuse the existing document through the normal tab-switch command, including symlink paths.
+    fn select_open_drawing(&mut self, path: &str) -> bool {
+        let existing = self.session.docs.iter().position(|d| d.path.as_deref().is_some_and(|p| opening::same_path(p, path)));
+        let Some(index) = existing else { return false };
+        match self.run("document.switch", json!({"index": index})) {
+            Ok(_) => {
+                self.ui.start_tab = false;
+                if let Some(path) = self.session.docs.get(index).and_then(|d| d.path.clone()) {
+                    self.remember_recent(path);
+                }
+            }
+            Err(error) => self.open_failed(error),
+        }
+        true
     }
 
     /// Load a LISP file: its routine runs and may wait for the user (APPLOAD typed or from the
