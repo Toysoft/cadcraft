@@ -58,6 +58,7 @@ const SESSION_VARS: &[&str] = &[
     "GRIPSIZE",
     "CURSORSIZE",
     "MAXARRAY",
+    "SPELLDICTIONARY",
     "ZOOMFACTOR",
     "LASTPOINT",
     "FONTALT",
@@ -126,6 +127,7 @@ pub fn get(s: &Session, name: &str) -> Option<Value> {
         "GRIPSIZE" => json!(st.gripsize),
         "CURSORSIZE" => json!(st.cursorsize),
         "MAXARRAY" => json!(st.maxarray),
+        "SPELLDICTIONARY" => json!(st.spelldictionary),
         "ZOOMFACTOR" => json!(st.zoomfactor),
         "LASTPOINT" => json!([s.last_point.x, s.last_point.y, 0.0]),
         // Held in radians (as `$ANGBASE` in DXF); reported in degrees, like POLARANG.
@@ -292,6 +294,7 @@ pub fn set(s: &mut Session, name: &str, v: &Value) -> Result<()> {
         "PICKSTYLE" => st.pickstyle = as_i(v).filter(|b| (0..=3).contains(b)).and_then(|b| u8::try_from(b).ok()).ok_or_else(bad)?,
         "GRIPSIZE" => st.gripsize = as_f64(v).ok_or_else(bad)?.clamp(1.0, 255.0),
         "CURSORSIZE" => st.cursorsize = as_f64(v).ok_or_else(bad)?.clamp(1.0, 100.0),
+        "SPELLDICTIONARY" => st.spelldictionary = v.as_str().filter(|p| p.len() <= 4096 && !p.contains('\0')).ok_or_else(bad)?.trim().to_string(),
         "MAXARRAY" => st.maxarray = as_f64(v).ok_or_else(bad)?.clamp(100.0, 10_000_000.0) as u64,
         "ZOOMFACTOR" => st.zoomfactor = as_i(v).filter(|z| (3..=100).contains(z)).ok_or_else(bad)? as u32,
         "FONTALT" => cadcraft_fonts::ttf::set_font_alt(v.as_str().ok_or_else(bad)?),

@@ -51,6 +51,7 @@ pub const PROFILE_VARS: &[&str] = &[
     "PICKFIRST",
     "PICKADD",
     "MAXARRAY",
+    "SPELLDICTIONARY",
 ];
 
 /// The most profile entries [`restore`] reads (a saved profile is untrusted input).
@@ -142,6 +143,7 @@ pub fn reset(s: &mut Session) {
     st.pickfirst = d.pickfirst;
     st.pickadd = d.pickadd;
     st.maxarray = d.maxarray;
+    st.spelldictionary = d.spelldictionary;
 }
 
 fn run_options(s: &mut Session, p: &Value) -> Result<Value> {
