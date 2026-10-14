@@ -78,6 +78,8 @@ fn model_png_without_fit_or_scale_plots_one_to_one() {
         (json!({"fit": false}), 100.0),
         (json!({"fit": false, "scale": 1}), 100.0),
         (json!({"fit": false, "scale": 0.5}), 50.0),
+        // A scale without `fit` plots at that scale (issue #1226).
+        (json!({"scale": 0.5}), 50.0),
         (json!({"fit": true}), 287.0),
         (json!({}), 287.0),
     ] {

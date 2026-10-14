@@ -106,6 +106,8 @@ In the file name, characters other than letters, digits, spaces and `-_()+,` bec
     printable area's lower-left origin; offsets are millimetres, default to `[0, 0]`, and are
     bounded to ±100,000 mm. PDF and PNG support these controls. SVG plots keep their extents view;
     an active offset is rejected rather than ignored. Layout plots do not use model offsets.
+  - A `scale` without `fit` plots at that scale: giving a scale turns Fit to paper off, as
+    choosing one does in the Plot dialog. `fit: true` still fits.
   - `exportpdf` takes the same options and always writes PDF.
 
 Model-space PDF plots don't apply the paper's margins yet. They fit the drawing inside the

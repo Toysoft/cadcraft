@@ -47,6 +47,7 @@ pub struct PdfOptions {
     pub paper_mm: Option<(f64, f64)>,
     pub landscape: Option<bool>,
     /// Fit the drawing to the printable area. Default: on for model space, off for layouts (1:1).
+    /// [`PdfOptions::from_json`] turns it off when a `scale` is given without `fit`.
     pub fit: Option<bool>,
     /// Plot scale in paper units per drawing unit (when not fitting).
     pub scale: Option<f64>,
@@ -121,6 +122,7 @@ impl PdfOptions {
             (Some(w), Some(h)) if w > 0.0 && h > 0.0 => Some((w, h)),
             _ => None,
         };
+        let scale = num("scale").filter(|s| *s > 0.0);
         PdfOptions {
             // `layers?` (default on), `offLayers?`, `links?: [{handle, url}]`, `text?: "text" |
             // "geometry"`.
@@ -132,8 +134,9 @@ impl PdfOptions {
             paper: v.get("paper").and_then(Value::as_str).map(str::to_string),
             paper_mm,
             landscape: v.get("landscape").and_then(Value::as_bool),
-            fit: v.get("fit").and_then(Value::as_bool),
-            scale: num("scale").filter(|s| *s > 0.0),
+            // Giving a scale turns Fit to paper off, as in the Plot dialog.
+            fit: v.get("fit").and_then(Value::as_bool).or(scale.map(|_| false)),
+            scale,
             center: v.get("center").and_then(Value::as_bool),
             offset: offset(v.get("offset")),
             lineweights: v.get("lineweights").and_then(Value::as_bool),
