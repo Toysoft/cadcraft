@@ -1407,6 +1407,12 @@ impl Session {
         kinds.into_iter().map(|k| Entity { handle: Handle(0), common: common.clone(), kind: k }).collect()
     }
 
+    /// The value the cursor would give at the active command's prompt (see
+    /// [`Interactive::live_value`]).
+    pub fn live_value(&self, cursor: Vec2) -> Option<String> {
+        self.running.as_ref()?.machine.live_value(self, cursor)
+    }
+
     /// The active command's preview as a transform of existing objects (see
     /// [`Interactive::drag`]), with its extra rubber-band geometry as entities.
     pub fn drag(&self, cursor: Vec2) -> Option<(Drag, Vec<Entity>)> {

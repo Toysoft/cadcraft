@@ -57,6 +57,10 @@ pub struct Prompt {
     /// prompt (the routine writes all of it).
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub raw: bool,
+    /// The value asked for is an angle about the base (a rotation grip): Dynamic Input shows one
+    /// angle box, with the command's live value ([`Interactive::live_value`]).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub angle: bool,
 }
 
 /// Parse `@distance<angle` (relative polar), returning `(distance, angle in radians)`.
@@ -87,6 +91,11 @@ impl Prompt {
         self
     }
     /// The visual chooser the UI can show (the `picker` field).
+    /// An angle about the base is asked for (the `angle` field).
+    pub fn angle(mut self) -> Self {
+        self.angle = true;
+        self
+    }
     pub fn picker(mut self, p: Picker) -> Self {
         self.picker = Some(p);
         self
@@ -208,6 +217,11 @@ pub trait Interactive: Send {
     /// Rubber-band geometry for the cursor position.
     fn preview(&self, _s: &Session, _cursor: Vec2) -> Vec<EntityKind> {
         Vec::new()
+    }
+    /// The value the cursor would give, as the prompt asks for it (an angle as the drawing
+    /// shows angles): what Dynamic Input shows in its box before anything is typed.
+    fn live_value(&self, _s: &Session, _cursor: Vec2) -> Option<String> {
+        None
     }
     /// The preview as existing objects under one transform, when it is that (MOVE, COPY,
     /// ROTATE, SCALE). The UI then draws them from geometry uploaded once instead of rebuilding
