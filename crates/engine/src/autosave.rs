@@ -339,9 +339,7 @@ mod native {
         if let Some(dir) = Path::new(path).parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let tmp = format!("{path}.tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        crate::durable::write_atomic(path, &bytes, ".tmp").map_err(|e| e.to_string())
     }
 
     impl Autosaver {

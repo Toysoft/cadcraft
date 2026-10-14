@@ -13,6 +13,8 @@ pub mod audit;
 pub mod autosave;
 pub mod blockedit;
 pub mod cmd;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod durable;
 mod finite;
 pub mod grip_dims;
 pub mod grips;
