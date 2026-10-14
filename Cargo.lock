@@ -662,6 +662,7 @@ dependencies = [
 name = "cadcraft-io"
 version = "0.7.0"
 dependencies = [
+ "acadrust",
  "cadcraft-color",
  "cadcraft-doc",
  "cadcraft-dwg",
