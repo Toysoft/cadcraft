@@ -15,7 +15,7 @@ use super::machines::{SelOutcome, SelectPhase, number};
 use super::*;
 use crate::{Accept, EngineError, Input, Interactive, Prompt, Result, Session, Step};
 
-mod attedit;
+pub(crate) mod attedit;
 mod dyngrip;
 mod extract;
 pub(crate) mod refedit;
