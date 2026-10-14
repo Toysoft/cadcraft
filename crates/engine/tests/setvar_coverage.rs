@@ -33,13 +33,35 @@ fn defaults_are_the_ones_the_commands_use() {
         ("CPLOTSTYLE", json!("ByLayer")),
         ("TRANSPARENCYDISPLAY", json!(1)),
         ("PLOTTRANSPARENCYOVERRIDE", json!(1)),
+        ("ARRAYASSOCIATIVITY", json!(1)),
+        ("HPASSOC", json!(1)),
+        ("HPGAPTOL", json!(0.0)),
+        ("HPISLANDDETECTION", json!(0)),
+        ("HPORIGINMODE", json!(0)),
+        ("HPSEPARATE", json!(0)),
+        ("CMLSTYLE", json!("STANDARD")),
     ] {
         assert_eq!(getvar(&mut s, name), v, "{name}");
     }
     // Lowercase names work; the list shows the new variables and the dimension variables.
     assert_eq!(getvar(&mut s, "circlerad"), json!(0.0));
     let all = cadcraft_engine::sysvars::list(&s);
-    for n in ["POLYSIDES", "SPLINESEGS", "CHAMFERD", "TRANSPARENCYDISPLAY", "DIMASZ", "OSMODE", "CLAYER"] {
+    for n in [
+        "HPGAPTOL",
+        "HPASSOC",
+        "HPSEPARATE",
+        "HPORIGINMODE",
+        "HPISLANDDETECTION",
+        "ARRAYASSOCIATIVITY",
+        "CMLSTYLE",
+        "POLYSIDES",
+        "SPLINESEGS",
+        "CHAMFERD",
+        "TRANSPARENCYDISPLAY",
+        "DIMASZ",
+        "OSMODE",
+        "CLAYER",
+    ] {
         assert!(all.get(n).is_some(), "{n} listed");
     }
 }
@@ -87,11 +109,28 @@ fn bad_values_and_unknown_names_are_refused() {
         ("CHAMFERD", json!("abc")),
         ("CPLOTSTYLE", json!("Style 1")),
         ("OFFSETDIST", json!(f64::MAX.to_string() + "0")),
+        // The hatch and array variables are checked like the others (they used to take anything).
+        ("HPGAPTOL", json!(-1)),
+        ("HPGAPTOL", json!(5001)),
+        ("HPGAPTOL", json!(f64::MAX.to_string() + "0")),
+        ("HPGAPTOL", json!("abc")),
+        ("HPORIGINMODE", json!(6)),
+        ("HPORIGINMODE", json!(-1)),
+        ("HPISLANDDETECTION", json!(3)),
+        ("HPASSOC", json!(2)),
+        ("HPASSOC", json!("banana")),
+        ("HPSEPARATE", json!(1.5)),
+        ("ARRAYASSOCIATIVITY", json!(2)),
+        ("CMLSTYLE", json!("Other")),
     ] {
         assert!(!setvar(&mut s, name, v.clone()), "{name} = {v} refused");
     }
     assert_eq!(getvar(&mut s, "POLYSIDES"), json!(4), "unchanged");
     assert!(cadcraft_engine::sysvars::is_read_only("cplotstyle"));
+    assert!(cadcraft_engine::sysvars::is_read_only("cmlstyle"));
+    for (name, v) in [("HPGAPTOL", json!(0.0)), ("HPORIGINMODE", json!(0)), ("HPASSOC", json!(1)), ("ARRAYASSOCIATIVITY", json!(1))] {
+        assert_eq!(getvar(&mut s, name), v, "{name} unchanged by the refused values");
+    }
     assert!(s.execute("getvar", &json!({ "name": "NOSUCHVAR" })).is_err());
     s.cmdline("setvar nosuchvar").unwrap();
     assert!(s.log.iter().any(|l| l.contains("Unknown variable NOSUCHVAR")), "{:?}", s.log);
@@ -104,4 +143,51 @@ fn metric_defaults() {
     assert_eq!(getvar(&mut s, "REVCLOUDARCLEN"), json!(15.0));
     assert_eq!(getvar(&mut s, "CMLSCALE"), json!(20.0));
     assert_eq!(getvar(&mut s, "CENTEREXE"), json!(3.5));
+}
+
+#[test]
+fn hatch_and_array_variables_take_their_whole_range() {
+    let mut s = Session::new();
+    for (name, v) in [
+        ("HPGAPTOL", json!(5000)),
+        ("HPGAPTOL", json!(0)),
+        ("HPGAPTOL", json!(0.25)),
+        ("HPORIGINMODE", json!(5)),
+        ("HPORIGINMODE", json!(0)),
+        ("HPISLANDDETECTION", json!(2)),
+        ("HPSEPARATE", json!(1)),
+        ("HPASSOC", json!(0)),
+        ("ARRAYASSOCIATIVITY", json!(0)),
+    ] {
+        assert!(setvar(&mut s, name, v.clone()), "{name} = {v} accepted");
+        assert_eq!(getvar(&mut s, name).as_f64(), v.as_f64(), "{name}");
+    }
+    // Typed at the command line, as a bare name.
+    s.cmdline("hpgaptol 2").unwrap();
+    assert_eq!(getvar(&mut s, "HPGAPTOL"), json!(2.0));
+}
+
+#[test]
+fn hatch_and_array_variables_reach_their_commands() {
+    let mut s = Session::new();
+    s.execute("rectang", &json!({ "p1": [0, 0], "p2": [10, 10] })).unwrap();
+    let associative = |s: &Session| {
+        s.doc()
+            .unwrap()
+            .model
+            .iter()
+            .filter_map(|e| if let cadcraft_engine::doc::EntityKind::Hatch(h) = &e.kind { Some(h.associative) } else { None })
+            .fold((0, 0), |(yes, no), a| if a { (yes + 1, no) } else { (yes, no + 1) })
+    };
+    s.execute("hatch", &json!({ "points": [[5, 5]] })).unwrap();
+    assert_eq!(associative(&s), (1, 0), "HPASSOC 1 is the default");
+    assert!(setvar(&mut s, "HPASSOC", json!(0)));
+    s.execute("hatch", &json!({ "points": [[5, 5]] })).unwrap();
+    assert_eq!(associative(&s), (1, 1), "HPASSOC 0 makes plain hatches");
+
+    let c = s.execute("circle", &json!({ "center": [30, 0], "radius": 2 })).unwrap()["handle"].as_str().unwrap().to_string();
+    let array = |s: &mut Session| s.execute("arrayrect", &json!({ "handles": [c], "rows": 1, "cols": 3, "colSpacing": 5 })).unwrap();
+    assert_eq!(array(&mut s)["associative"], true, "ARRAYASSOCIATIVITY 1 is the default");
+    assert!(setvar(&mut s, "ARRAYASSOCIATIVITY", json!(0)));
+    assert_ne!(array(&mut s)["associative"], true);
 }

@@ -16,6 +16,8 @@ enum Kind {
     Int(i64, i64),
     /// A real number of at least `min` (`strict`: greater than `min`).
     Real { min: f64, strict: bool },
+    /// A real number in `min..=max`.
+    RealRange(f64, f64),
     /// Any finite real number.
     AnyReal,
     /// An angle: kept in radians, shown and typed in degrees (a typed text follows AUNITS).
@@ -49,16 +51,27 @@ const HEADER: &[(&str, Kind, Def)] = &[
     ("CIRCLERAD", Kind::Real { min: 0.0, strict: false }, Def::Real(0.0)),
     ("CMLJUST", Kind::Choice(&[0, 1, 2]), Def::Int(0)),
     ("CMLSCALE", Kind::AnyReal, Def::Units(1.0, 20.0)),
+    // The current multiline style; MLSTYLE sets it.
+    ("CMLSTYLE", Kind::ReadOnlyStr, Def::Str(cadcraft_doc::STANDARD_MLINE_STYLE)),
     ("CPLOTSTYLE", Kind::ReadOnlyStr, Def::Str("ByLayer")),
+    ("ARRAYASSOCIATIVITY", Kind::Choice(&[0, 1]), Def::Int(1)),
     ("DIMASSOC", Kind::Choice(&[0, 1, 2]), Def::Int(2)),
     ("DONUTID", Kind::Real { min: 0.0, strict: false }, Def::Real(0.5)),
     ("DONUTOD", Kind::Real { min: 0.0, strict: true }, Def::Real(1.0)),
     ("EDGEMODE", Kind::Choice(&[0, 1]), Def::Int(0)),
     ("HPANG", Kind::Angle, Def::Real(0.0)),
+    ("HPASSOC", Kind::Choice(&[0, 1]), Def::Int(1)),
+    // The widest gap between curve ends that still closes a boundary.
+    ("HPGAPTOL", Kind::RealRange(0.0, 5000.0), Def::Real(0.0)),
     // 1: HATCH and GRADIENT typed or from a menu open the Hatch and Gradient dialog; 0: the command line.
     ("HPDLGMODE", Kind::Choice(&[0, 1]), Def::Int(1)),
+    // 0 normal, 1 outer, 2 ignore.
+    ("HPISLANDDETECTION", Kind::Choice(&[0, 1, 2]), Def::Int(0)),
     ("HPNAME", Kind::Pattern, Def::Str("ANSI31")),
+    // 0 the stored origin, 1 bottom left, 2 bottom right, 3 top right, 4 top left, 5 centre.
+    ("HPORIGINMODE", Kind::Choice(&[0, 1, 2, 3, 4, 5]), Def::Int(0)),
     ("HPSCALE", Kind::Real { min: 0.0, strict: true }, Def::Real(1.0)),
+    ("HPSEPARATE", Kind::Choice(&[0, 1]), Def::Int(0)),
     ("INSNAME", Kind::Name, Def::Str("")),
     ("LWDEFAULT", Kind::Choice(&LINEWEIGHTS), Def::Int(25)),
     // Negative: Through (OFFSET picks a point).
@@ -166,6 +179,10 @@ fn set_header(s: &mut Session, name: &str, kind: Kind, v: &Value, bad: impl Fn(S
         Kind::Real { min, strict } => {
             let f = real().filter(|f| if strict { *f > min } else { *f >= min });
             let f = f.ok_or_else(|| bad(format!("a number {} {min}", if strict { "above" } else { "of at least" })))?;
+            s.doc_mut()?.header.set_f64(name, f);
+        }
+        Kind::RealRange(min, max) => {
+            let f = real().filter(|f| (min..=max).contains(f)).ok_or_else(|| bad(format!("{min} to {max}")))?;
             s.doc_mut()?.header.set_f64(name, f);
         }
         Kind::AnyReal => {
