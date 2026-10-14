@@ -167,6 +167,11 @@ impl Spline {
                     if same(&interp_knots(&u, o.start_tangent.is_some(), o.end_tangent.is_some()).1) {
                         return true;
                     }
+                    // Free ends in a file saved before the natural-end net (#1179): one control
+                    // point per fit point, knots averaged from the parameters.
+                    if o.start_tangent.is_none() && o.end_tangent.is_none() && same(&averaged_knots(&u, false, false).1) {
+                        return true;
+                    }
                     let m = self.control.len();
                     if p < m && m < u.len() && same(&lsq_knots(&u, m, p)) {
                         return true;
@@ -225,10 +230,17 @@ fn open_fit(fit: &[Vec2], opts: FitOptions) -> Spline {
         return s;
     }
     let u = params(fit, opts.knots, false);
-    // Tangents are directions; the derivative's length is the curve length in parameter space.
-    let len = chord_length(fit).max(1e-12);
-    let d0 = opts.start_tangent.map(|t| t * len);
-    let d1 = opts.end_tangent.map(|t| t * len);
+    // Tangents are directions; the derivative's length is the speed at that end: the chord to
+    // the neighbouring fit point over its parameter step (the whole chord length under chord
+    // parametrisation; under uniform or square-root parametrisation the local value, so the
+    // end doesn't overshoot where the points are closer than the average).
+    let speed = |i: usize| {
+        let step = u.get(i + 1).copied().unwrap_or(1.0) - u.get(i).copied().unwrap_or(0.0);
+        let leg = fit.get(i).zip(fit.get(i + 1)).map(|(a, b)| a.dist(*b)).unwrap_or(0.0);
+        (leg / step.max(1e-12)).clamp(1e-12, 1e300)
+    };
+    let d0 = opts.start_tangent.map(|t| t * speed(0));
+    let d1 = opts.end_tangent.map(|t| t * speed(n - 2));
     if opts.tolerance > 0.0
         && n <= MAX_APPROX_POINTS
         && let Some(s) = approximate(fit, &u, d0, d1, opts.tolerance)
@@ -246,8 +258,11 @@ fn open_fit(fit: &[Vec2], opts: FitOptions) -> Spline {
     interpolate(fit, &u, d0, d1).unwrap_or_else(through_control)
 }
 
-/// Global interpolation: one control point per fit point plus one per end-derivative
-/// constraint, knots by averaging the parameters (an end with a derivative counts its
+/// Global interpolation. With free ends: a natural cubic (zero curvature at both ends) with the
+/// fit parameters as its interior knots, two control points more than fit points — the net
+/// AutoCAD builds for a fit-point spline, so the curve a DWG keeps only the fit points of is
+/// rebuilt as it was drawn (#1179). With end derivatives: one control point per fit point plus
+/// one per derivative, knots by averaging the parameters (an end with a derivative counts its
 /// parameter twice).
 fn interpolate(fit: &[Vec2], u: &[f64], d0: Option<Vec2>, d1: Option<Vec2>) -> Option<Spline> {
     let (p, knots) = interp_knots(u, d0.is_some(), d1.is_some());
@@ -282,6 +297,16 @@ fn interpolate(fit: &[Vec2], u: &[f64], d0: Option<Vec2>, d1: Option<Vec2>) -> O
         let c = p as f64 / (1.0 - knots.get(m - 1).copied().unwrap_or(0.0)).max(1e-12);
         put(&[(m - 2, -c), (m - 1, c)], d, &mut a);
     }
+    // Free ends: natural end conditions, C''(0) = C''(1) = 0. At a clamped end the curvature
+    // vanishes when the first two legs of the control polygon, each divided by the knot span it
+    // covers (k1 = u_(p+1), k2 = u_(p+2) from the start; the mirror from the end), are equal.
+    if d0.is_none() && d1.is_none() && m >= 5 {
+        let k = |i: usize| knots.get(i).copied().unwrap_or(0.0);
+        let (k1, k2) = (k(p + 1), k(p + 2));
+        put(&[(0, k2), (1, -(k1 + k2)), (2, k1)], Vec2::ZERO, &mut a);
+        let (e1, e2) = (1.0 - k(m - 1), 1.0 - k(m - 2));
+        put(&[(m - 3, e1), (m - 2, -(e1 + e2)), (m - 1, e2)], Vec2::ZERO, &mut a);
+    }
     let (cx, cy) = (solve(a.clone(), xs)?, solve(a, ys)?);
     let control: Vec<Vec2> = cx.into_iter().zip(cy).map(|(x, y)| Vec2::new(x, y)).collect();
     if control.iter().any(|c| !c.x.is_finite() || !c.y.is_finite()) {
@@ -290,9 +315,24 @@ fn interpolate(fit: &[Vec2], u: &[f64], d0: Option<Vec2>, d1: Option<Vec2>) -> O
     Some(Spline { degree: p, knots, control, fit: fit.to_vec(), ..Spline::default() })
 }
 
-/// Degree and clamped knots for interpolating at parameters `u`, with optional end derivatives:
-/// knots average the parameters, an end with a derivative counting its parameter twice.
+/// Degree and clamped knots for interpolating at parameters `u`, with optional end derivatives.
+/// Free ends (three or more points): cubic, the interior parameters themselves as the interior
+/// knots, for the two extra control points of the natural end conditions. Otherwise the knots
+/// average the parameters, an end with a derivative counting its parameter twice.
 fn interp_knots(u: &[f64], d0: bool, d1: bool) -> (usize, Vec<f64>) {
+    if !d0 && !d1 && u.len() >= 3 {
+        let p = 3;
+        let mut knots = vec![0.0; p + 1];
+        knots.extend(u.iter().skip(1).take(u.len().saturating_sub(2)));
+        knots.extend(std::iter::repeat_n(1.0, p + 1));
+        return (p, knots);
+    }
+    averaged_knots(u, d0, d1)
+}
+
+/// Degree and clamped knots averaging the parameters `u`, an end with a derivative counting its
+/// parameter twice: one control point per fit point plus one per derivative.
+fn averaged_knots(u: &[f64], d0: bool, d1: bool) -> (usize, Vec<f64>) {
     let m = u.len() + usize::from(d0) + usize::from(d1);
     let p = 3.min(m.saturating_sub(1)).max(1);
     let mut seq = Vec::with_capacity(m);
@@ -885,6 +925,92 @@ mod tests {
         let few = wave(64);
         assert!(passes_through(&Spline::fit_with(&few, false, FitOptions::default()), &few, 1e-6));
         assert!(passes_through(&Spline::fit_with(&few, true, FitOptions::default()), &few, 1e-6));
+    }
+
+    /// Issue #1179: with free ends the fit builds the net AutoCAD builds — two control points
+    /// more than fit points, the chord parameters as interior knots (AutoCAD's knots for these
+    /// four points are 0 ×4, 42.43, 92.43, 142.43 ×4: the chord lengths), zero curvature at the
+    /// ends — and the knots identify the parametrisation.
+    #[test]
+    fn free_ends_build_the_net_autocad_does() {
+        let fit = [Vec2::new(0.0, 100.0), Vec2::new(30.0, 130.0), Vec2::new(60.0, 90.0), Vec2::new(100.0, 120.0)];
+        let s = Spline::fit_with(&fit, false, FitOptions::default());
+        assert!(s.is_valid() && s.degree == 3 && passes_through(&s, &fit, 1e-9));
+        assert_eq!(s.control.len(), 6, "{:?}", s.control);
+        let chord = chord_length(&fit);
+        let autocad = [0.0, 0.0, 0.0, 0.0, 42.43, 92.43, 142.43, 142.43, 142.43, 142.43];
+        assert_eq!(s.knots.len(), autocad.len());
+        for (k, want) in s.knots.iter().zip(autocad) {
+            assert!((k * chord - want).abs() < 1e-2, "knots {:?} × {chord}", s.knots);
+        }
+        assert_eq!(s.infer_knot_param(), KnotParam::Chord);
+        // Zero curvature at both ends. The central second difference of a cubic piece is its
+        // exact second derivative, linear along the piece, so two of them extrapolate to the end.
+        let h = 1e-3;
+        let second = |t: f64| (s.eval(t + h) - s.eval(t) * 2.0 + s.eval(t - h)) * (1.0 / (h * h));
+        let at_start = second(h) * 2.0 - second(2.0 * h);
+        let at_end = second(1.0 - h) * 2.0 - second(1.0 - 2.0 * h);
+        assert!(at_start.len() < 1e-3, "{at_start:?}");
+        assert!(at_end.len() < 1e-3, "{at_end:?}");
+        assert!(second(0.5).len() > 1.0, "curved in between: {:?}", second(0.5));
+        // The same net read back with AutoCAD's knot scale still says chord.
+        let scaled = Spline { knots: s.knots.iter().map(|k| k * chord).collect(), ..s.clone() };
+        assert_eq!(scaled.infer_knot_param(), KnotParam::Chord);
+        // Three points: five control points, one interior knot.
+        let three = Spline::fit_with(&fit[..3], false, FitOptions::default());
+        assert!(three.is_valid() && three.control.len() == 5 && three.degree == 3 && passes_through(&three, &fit[..3], 1e-9));
+    }
+
+    /// Five fit points, uneven enough that the parametrisations differ.
+    fn old_net_fit() -> Vec<Vec2> {
+        vec![Vec2::new(0.0, 0.0), Vec2::new(1.0, 3.0), Vec2::new(2.0, 0.0), Vec2::new(5.0, 4.0), Vec2::new(9.0, 1.0)]
+    }
+
+    /// The net CADCraft built before #1179 for free ends: one control point per fit point, the
+    /// knots the averages of the parameters. A DXF saved back then carries exactly this (the
+    /// writer stores no knot parametrisation), so it must still read back with its own
+    /// parametrisation, or the next refit (grip, SPLINEDIT, constraint) changes the shape.
+    fn old_net(fit: &[Vec2], kind: KnotParam) -> Spline {
+        let u = params(fit, kind, false);
+        let p = 3;
+        let mut knots = vec![0.0; p + 1];
+        for j in 1..fit.len() - p {
+            knots.push((j..j + p).map(|i| u[i]).sum::<f64>() / p as f64);
+        }
+        knots.extend(std::iter::repeat_n(1.0, p + 1));
+        Spline { degree: p, knots, control: fit.to_vec(), fit: fit.to_vec(), fit_opts: FitOptions::default(), ..Spline::default() }
+    }
+
+    #[test]
+    fn old_uniform_net_is_still_recognised_as_uniform() {
+        let s = old_net(&old_net_fit(), KnotParam::Uniform);
+        assert!(s.is_valid());
+        assert_eq!(s.infer_knot_param(), KnotParam::Uniform);
+    }
+
+    #[test]
+    fn old_sqrt_net_is_still_recognised_as_sqrt() {
+        let s = old_net(&old_net_fit(), KnotParam::SqrtChord);
+        assert!(s.is_valid());
+        assert_eq!(s.infer_knot_param(), KnotParam::SqrtChord);
+    }
+
+    #[test]
+    fn old_chord_net_is_still_recognised_as_chord() {
+        let s = old_net(&old_net_fit(), KnotParam::Chord);
+        assert!(s.is_valid());
+        assert_eq!(s.infer_knot_param(), KnotParam::Chord);
+    }
+
+    /// The net this version builds with free ends (two more control points than fit points, the
+    /// parameters as interior knots) is recognised for every parametrisation too.
+    #[test]
+    fn new_net_is_recognised_for_each_parametrisation() {
+        for kind in KnotParam::ALL {
+            let s = Spline::fit_with(&old_net_fit(), false, FitOptions { knots: kind, ..FitOptions::default() });
+            assert_eq!(s.control.len(), old_net_fit().len() + 2);
+            assert_eq!(s.infer_knot_param(), kind);
+        }
     }
 
     #[test]

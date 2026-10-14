@@ -111,3 +111,56 @@ fn helix_command_line_preview_and_hostile_values() {
     let d = s.doc().unwrap();
     let _ = cadcraft_render::build(d, &Space::Model, &cadcraft_render::Options::default());
 }
+
+/// The spline of a helix stays as close to the helix as the plain interpolation of its points
+/// was (largest distance to `Helix::point_at` over the larger radius; the bounds are what the
+/// plain interpolation reached, +5%, and 1e-8 for the near-straight 0.001 turns, where both are
+/// far below anything drawn). Below one turn the end tangents once made it worse, 62 times
+/// at 0.05 turns, 10 to 4 (4.7e-4 against 7.6e-6).
+#[test]
+fn helix_spline_is_as_accurate_as_the_plain_interpolation() {
+    use cadcraft_geom::Vec3;
+    // (turns, base radius, top radius, bound on largest distance / larger radius)
+    let cases = [
+        (0.001, 10.0, 10.0, 1e-8),
+        (0.001, 10.0, 4.0, 1e-8),
+        (0.001, 5.0, 0.0, 1e-8),
+        (0.05, 10.0, 10.0, 1.04e-6),
+        (0.05, 10.0, 4.0, 7.96e-6),
+        (0.05, 5.0, 0.0, 1.33e-5),
+        (0.25, 10.0, 10.0, 6.64e-4),
+        (0.25, 10.0, 4.0, 1.18e-3),
+        (0.25, 5.0, 0.0, 1.79e-3),
+        (0.5, 10.0, 10.0, 1.13e-2),
+        (0.5, 10.0, 4.0, 1.31e-2),
+        (0.5, 5.0, 0.0, 1.70e-2),
+        (1.0, 10.0, 10.0, 1.12e-2),
+        (1.0, 5.0, 0.0, 1.20e-2),
+        (3.0, 10.0, 4.0, 1.10e-2),
+    ];
+    for (turns, br, tr, bound) in cases {
+        for ccw in [true, false] {
+            let hx = Helix {
+                center: Vec3::new(1.0, 2.0, 3.0),
+                base_radius: br,
+                top_radius: tr,
+                height: 30.0,
+                turns,
+                start_angle: 0.7,
+                ccw,
+                constrain: cadcraft_doc::HelixConstrain::Height,
+            }
+            .sanitized();
+            let (sp, _) = hx.spline3();
+            let (lo, hi) = sp.domain();
+            let dev = (0..=2000)
+                .map(|i| {
+                    let t = f64::from(i) / 2000.0;
+                    sp.eval(lo + (hi - lo) * t).dist(hx.point_at(t).xy())
+                })
+                .fold(0.0, f64::max);
+            let rel = dev / br.max(tr);
+            assert!(rel <= bound, "{turns} turns, radius {br} to {tr}, ccw {ccw}: {rel:e} > {bound:e}");
+        }
+    }
+}

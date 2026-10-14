@@ -102,8 +102,10 @@ fn spline_midpoint_perpendicular_and_tangent() {
     let (p, k) = snap_at(&s, top, mode::PER, Some(Vec2::new(2.0, -5.0))).expect("a perpendicular foot");
     assert_eq!(k, mode::PER);
     assert!(p.near(top, 1e-6), "{p:?}");
-    // Tangent from above the top: the line touches the arch where it runs straight at the base.
-    let base = Vec2::new(2.0, top.y + 1.0);
+    // Tangent from above the top: the line touches the arch on its way down. (The arch is a
+    // natural cubic, straight at its ends: from a point a whole unit above the top the only
+    // tangents run to the end points themselves; from half a unit they touch at x = 1 and 3.)
+    let base = Vec2::new(2.0, top.y + 0.5);
     let (lo, hi) = sp.domain();
     let mut hit = None;
     for i in 0..=400 {

@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 pub const MAX_HELIX_TURNS: f64 = 500.0;
 /// Points on the helix per turn that its spline runs through.
 const POINTS_PER_TURN: f64 = 8.0;
+/// Fewest points a helix is fitted through, so a part of a turn is as close to the helix as the
+/// plain interpolation of its points was: the end tangents are chords over parameter steps, and
+/// the chord of a step of a whole eighth of a turn runs 2.5% short of the arc.
+const MIN_POINTS: usize = 32;
 
 /// What stays fixed when the helix is edited (DXF group 280).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -87,6 +91,16 @@ impl Helix {
         Vec3::new(p.x, p.y, self.center.z + self.height * t)
     }
 
+    /// The direction of the helix seen from above at `t` in `0..=1` (its tangent, the radius
+    /// changing and the angle turning); zero for a helix that doesn't move.
+    pub fn tangent_at(&self, t: f64) -> Vec2 {
+        let sign = if self.ccw { 1.0 } else { -1.0 };
+        let turn = sign * TAU * self.turns;
+        let a = self.start_angle + turn * t;
+        let r = self.base_radius + (self.top_radius - self.base_radius) * t;
+        Vec2::new(a.cos(), a.sin()) * (self.top_radius - self.base_radius) + Vec2::new(-a.sin(), a.cos()) * (r * turn)
+    }
+
     pub fn start_point(&self) -> Vec3 {
         self.point_at(0.0)
     }
@@ -97,17 +111,24 @@ impl Helix {
     /// The points the spline runs through, evenly spaced in angle.
     pub fn fit_points(&self) -> Vec<Vec3> {
         let turns = if self.turns.is_finite() { self.turns.clamp(1e-3, MAX_HELIX_TURNS) } else { 1.0 };
-        let n = ((turns * POINTS_PER_TURN).ceil() as usize).max(4);
+        let n = ((turns * POINTS_PER_TURN).ceil() as usize).max(MIN_POINTS);
         (0..=n).map(|i| self.point_at(i as f64 / n as f64)).collect()
     }
 
     /// The helix as a cubic spline seen from above, and the height of each control point: the
-    /// spline through [`Helix::fit_points`] with evenly spaced knots, so the height, linear in
-    /// the parameter, is exact at each control point's Greville abscissa.
+    /// spline through [`Helix::fit_points`] with evenly spaced knots and the helix's own end
+    /// tangents (a free end would be straight, off the circle), so the height, linear in the
+    /// parameter, is exact at each control point's Greville abscissa.
     pub fn spline3(&self) -> (GSpline, Vec<f64>) {
         let fit = self.fit_points();
         let xy: Vec<Vec2> = fit.iter().map(|p| p.xy()).collect();
-        let sp = GSpline::fit_with(&xy, false, FitOptions { knots: KnotParam::Uniform, ..FitOptions::default() });
+        let opts = FitOptions {
+            knots: KnotParam::Uniform,
+            start_tangent: Some(self.tangent_at(0.0)),
+            end_tangent: Some(self.tangent_at(1.0)),
+            ..FitOptions::default()
+        };
+        let sp = GSpline::fit_with(&xy, false, opts);
         let (lo, hi) = sp.domain();
         let span = if hi - lo > 1e-12 { hi - lo } else { 1.0 };
         let p = sp.degree.max(1);
