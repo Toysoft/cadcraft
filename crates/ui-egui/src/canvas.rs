@@ -121,6 +121,8 @@ pub struct CanvasState {
     pub param: crate::parametric::Cache,
     /// A selection window opened by a press-and-drag, to close where the button is let go.
     drag_window: bool,
+    /// Press on an already selected object: MOVE starts only after the drag threshold.
+    drag_move: Option<DragMove>,
     /// The right-click that opened the shortcut menu held Shift or Ctrl: it is the object snap
     /// menu ([`crate::context_menu`]).
     pub snap_menu: bool,
@@ -160,6 +162,13 @@ impl CanvasState {
         self.window = window;
         self.build_ms = built.build_ms;
     }
+}
+
+struct DragMove {
+    origin: Vec2,
+    selection: Vec<Handle>,
+    started: bool,
+    cancelled: bool,
 }
 
 /// Tab cycling through the candidate snaps under the cursor: where it started and which
@@ -1330,6 +1339,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
     }
     // A click in another tile makes it current (or answers -VPORTS Join's prompts).
     if pressed_primary
+        && app.canvas.drag_move.is_none()
         && let Some(hp) = hover_pos
         && !rect.contains(hp)
         && let Some(i) = tiles.iter().position(|(r, _)| r.contains(hp))
@@ -1410,7 +1420,14 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         && app.session.pending_window.is_none()
         && !app.session.realtime_zoom_active();
     let pressed_primary = pressed_primary || (point_prompt && resp.drag_stopped_by(egui::PointerButton::Primary));
-    if point_prompt && inside && pressed_primary && !middle_down && app.cmd.options.is_none() && app.cmd.buffer.is_empty() {
+    if point_prompt
+        && app.canvas.drag_move.is_none()
+        && inside
+        && pressed_primary
+        && !middle_down
+        && app.cmd.options.is_none()
+        && app.cmd.buffer.is_empty()
+    {
         let releases: Vec<egui::Pos2> = ui.input(|i| {
             i.events
                 .iter()
@@ -1494,9 +1511,31 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl;
+    // Capture the selection before idle_click changes it (including PICKADD=0).
+    // Grips keep their own editing behavior; modified clicks keep selection behavior.
+    if inside && ui.input(|i| i.pointer.button_pressed(egui::PointerButton::Primary)) {
+        app.canvas.drag_move = None;
+        if !middle_down
+            && !idle_dbl
+            && !hatch_dialog
+            && !mods.shift
+            && !mods.ctrl
+            && !mods.alt
+            && app.session.running.is_none()
+            && !app.session.prompting()
+            && app.session.pending_window.is_none()
+            && grip_at(app, &xf, hover_pos).is_none()
+            && let (Some(origin), Ok(st)) = (raw_world, app.session.state())
+            && let Some(hit) = cadcraft_engine::select::pick(&st.doc, &st.edit_space(), origin, app.session.settings.pickbox.max(1.0) * 1.5 / scale)
+            && st.selection.contains(&hit)
+        {
+            app.canvas.drag_move = Some(DragMove { origin, selection: st.selection.clone(), started: false, cancelled: false });
+        }
+    }
     // Clicks.
     if inside
         && pressed_primary
+        && app.canvas.drag_move.is_none()
         && !middle_down
         && let Some(p) = app.canvas.cursor
     {
@@ -1523,32 +1562,93 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             crate::dyngrips::click(app, g);
         } else if let Some(g) = grip_at(app, &xf, hover_pos) {
             click_grip(app, g, mods.shift);
-        } else if let Err(e) = app.session.idle_click(raw_world.unwrap_or(p), mods.shift) {
+        } else if app.canvas.drag_move.is_none()
+            && let Err(e) = app.session.idle_click(raw_world.unwrap_or(p), mods.shift)
+        {
             app.session.echo(e.to_string());
         }
     }
-    // Press-and-drag selection window (AutoCAD's PICKDRAG = 2; click-click still works): a drag
-    // that starts while objects are being selected opens a window where the button went down,
-    // and letting go closes it. Drags on grips and drags while drawing are left alone.
-    if resp.drag_started_by(egui::PointerButton::Primary)
-        && !middle_down
-        && app.session.pending_window.is_none()
-        && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-        && rect.contains(origin)
-        && grip_at(app, &xf, Some(origin)).is_none()
-        && crate::dyngrips::at(app, &xf, Some(origin)).is_none()
-    {
-        app.canvas.drag_window = app.session.begin_window(xf.to_world(origin));
-    }
-    if app.canvas.drag_window && resp.drag_stopped_by(egui::PointerButton::Primary) {
-        app.canvas.drag_window = false;
-        if app.session.pending_window.is_some()
-            && let Some(end) = ui.input(|i| i.pointer.interact_pos())
+    if let Some(mut drag) = app.canvas.drag_move.take() {
+        let moving = app.session.running.as_ref().is_some_and(|r| r.id == "move");
+        if !focused || ui.input(|i| i.key_pressed(egui::Key::Escape)) || (drag.started && !moving) || (!drag.started && app.session.running.is_some())
         {
-            let end = xf.to_world(end);
-            let done = if app.session.prompting() { app.session.input(Input::Point(end)) } else { app.session.idle_click(end, mods.shift) };
-            if let Err(e) = done {
-                app.session.echo(e.to_string());
+            if drag.started && moving {
+                app.session.cancel();
+            }
+            drag.cancelled = true;
+        }
+        // A lost pointer capture must not leave MOVE awaiting an unrelated later click.
+        if drag.started && !drag.cancelled && !ui.input(|i| i.pointer.primary_down() || i.pointer.button_released(egui::PointerButton::Primary)) {
+            app.session.cancel();
+            drag.cancelled = true;
+        }
+        if !drag.cancelled && !drag.started && resp.drag_started_by(egui::PointerButton::Primary) {
+            app.session.set_selection(drag.selection.clone());
+            let result = app.session.start("move").and_then(|()| {
+                if app.session.current_prompt().is_some_and(|p| p.accept.select) {
+                    app.session.input(Input::Pick(drag.selection.clone()))?;
+                    app.session.input(Input::Enter)?;
+                }
+                app.session.input(Input::Point(drag.origin))
+            });
+            match result {
+                Ok(()) => drag.started = true,
+                Err(e) => {
+                    app.session.echo(e.to_string());
+                    if app.session.running.as_ref().is_some_and(|r| r.id == "move") {
+                        app.session.cancel();
+                    }
+                    drag.cancelled = true;
+                }
+            }
+        }
+        // Recompute after starting MOVE, and outside the canvas while the pointer is captured.
+        if drag.started
+            && !drag.cancelled
+            && let Some(at) = ui.input(|i| i.pointer.interact_pos())
+        {
+            let point = effective_point(app, xf.to_world(at), &xf, ui.ctx());
+            app.canvas.cursor = Some(point);
+            app.session.cursor = point;
+            if ui.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+                let result = match app.canvas.snap {
+                    Some(hit) => app.session.input_snapped(hit),
+                    None => app.session.input(Input::Point(point)),
+                };
+                if let Err(e) = result {
+                    app.session.echo(e.to_string());
+                    app.session.cancel();
+                }
+                app.session.set_selection(drag.selection.clone());
+            }
+        }
+        if ui.input(|i| i.pointer.primary_down()) {
+            app.canvas.drag_move = Some(drag);
+        }
+        // A drag on a selected object must never open a selection window, including its release.
+    } else {
+        // Press-and-drag selection window (AutoCAD's PICKDRAG = 2; click-click still works): a drag
+        // that starts while objects are being selected opens a window where the button went down,
+        // and letting go closes it. Drags on grips and drags while drawing are left alone.
+        if resp.drag_started_by(egui::PointerButton::Primary)
+            && !middle_down
+            && app.session.pending_window.is_none()
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+            && rect.contains(origin)
+            && grip_at(app, &xf, Some(origin)).is_none()
+        {
+            app.canvas.drag_window = app.session.begin_window(xf.to_world(origin));
+        }
+        if app.canvas.drag_window && resp.drag_stopped_by(egui::PointerButton::Primary) {
+            app.canvas.drag_window = false;
+            if app.session.pending_window.is_some()
+                && let Some(end) = ui.input(|i| i.pointer.interact_pos())
+            {
+                let end = xf.to_world(end);
+                let done = if app.session.prompting() { app.session.input(Input::Point(end)) } else { app.session.idle_click(end, mods.shift) };
+                if let Err(e) = done {
+                    app.session.echo(e.to_string());
+                }
             }
         }
     }
