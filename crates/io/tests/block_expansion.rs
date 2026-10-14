@@ -63,3 +63,18 @@ fn ordinary_nested_and_arrayed_blocks_are_drawn_whole() {
     assert!(matches!(d.model.iter().next().map(|e| &e.kind), Some(EntityKind::Insert(_))));
     assert_eq!(build(&d, &Space::Model, &Options::default()).prims.len(), cadcraft_doc::MAX_BLOCK_DEPTH);
 }
+
+#[test]
+fn a_build_that_spends_the_expansion_budget_says_so() {
+    // 10,000 x 10,000 copies of a one-line block: far past the budget. The list stops at the
+    // budget and says so, so a screen, plot or export missing contents is not silent (#1070).
+    let d = read(&minsert(10_000, 10_000));
+    let list = build(&d, &Space::Model, &Options::default());
+    assert!(list.truncated, "block contents were left out without a word");
+    assert!(list.prims.len() <= MAX_BLOCK_EXPANSION, "{}", list.prims.len());
+    // A drawing within the budget is whole and says nothing.
+    let d = read(&minsert(3, 2));
+    let list = build(&d, &Space::Model, &Options::default());
+    assert!(!list.truncated);
+    assert_eq!(list.prims.len(), 6);
+}
