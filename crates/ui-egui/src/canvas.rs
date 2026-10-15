@@ -1494,9 +1494,13 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         app.canvas.drag_window = false;
     }
     let pressed_primary = pressed_primary && !picked && !hatch_dialog && !idle_dbl;
+    // egui's click summary has one position per frame; preserve complete selection clicks
+    // delivered together without changing how single clicks or drags are classified.
+    let batched = !point_prompt && inside && focused && pressed_primary && !middle_down && click_batch::input(app, &xf, ui);
     // Clicks.
     if inside
         && pressed_primary
+        && !batched
         && !middle_down
         && let Some(p) = app.canvas.cursor
     {
@@ -2602,6 +2606,7 @@ pub(crate) mod tests {
 
 /// The Block Editor's tint, base point and bar.
 mod blockedit;
+mod click_batch;
 /// The COMPARE overlay.
 mod compare;
 
