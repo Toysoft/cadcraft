@@ -10,19 +10,19 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
     }
     let prec = luprec.clamp(0, 8) as usize;
     match lunits {
-        1 => format!("{:.*E}", prec, v),
+        1 => unsigned_zero(format!("{:.*E}", prec, v)),
         3 => {
-            let neg = v < 0.0;
             let a = v.abs();
             let ft = (a / 12.0).floor();
-            let inch = a - ft * 12.0;
-            format!("{}{}'-{:.*}\"", if neg { "-" } else { "" }, ft as i64, prec, inch)
+            let inch = format!("{:.*}", prec, a - ft * 12.0);
+            let neg = v < 0.0 && (ft != 0.0 || has_nonzero_digit(&inch));
+            format!("{}{}'-{}\"", if neg { "-" } else { "" }, ft as i64, inch)
         }
         4 => {
-            let neg = v < 0.0;
             let a = v.abs();
             let denom = 1i64 << prec.min(8);
             let total = (a * denom as f64).round() as i64;
+            let neg = v < 0.0 && total != 0;
             let ft = total / (12 * denom);
             let rem = total - ft * 12 * denom;
             let inch = rem / denom;
@@ -36,10 +36,10 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
             format!("{}{}'-{}{}\"", if neg { "-" } else { "" }, ft, inch, fs)
         }
         5 => {
-            let neg = v < 0.0;
             let a = v.abs();
             let denom = 1i64 << prec.min(8);
             let total = (a * denom as f64).round() as i64;
+            let neg = v < 0.0 && total != 0;
             let whole = total / denom;
             let frac = total % denom;
             let fs = if frac == 0 {
@@ -50,7 +50,19 @@ pub fn format_distance(v: f64, lunits: i64, luprec: i64) -> String {
             };
             format!("{}{}{}", if neg { "-" } else { "" }, whole, fs)
         }
-        _ => format!("{:.*}", prec, v),
+        _ => unsigned_zero(format!("{:.*}", prec, v)),
+    }
+}
+
+fn has_nonzero_digit(s: &str) -> bool {
+    s.chars().any(|c| ('1'..='9').contains(&c))
+}
+
+/// Drop the minus sign of a formatted number whose mantissa rounded to zero.
+fn unsigned_zero(s: String) -> String {
+    match s.strip_prefix('-') {
+        Some(r) if !has_nonzero_digit(r.split('E').next().unwrap_or(r)) => r.to_string(),
+        _ => s,
     }
 }
 
@@ -292,6 +304,26 @@ mod tests {
         assert_eq!(format_distance(18.5, 4, 4), "1'-6 1/2\"");
         assert_eq!(format_distance(6.25, 5, 2), "6 1/4");
         assert_eq!(format_distance(30.0, 3, 2), "2'-6.00\"");
+    }
+
+    #[test]
+    fn negative_zero() {
+        assert_eq!(format_distance(-0.00001, 2, 4), "0.0000");
+        assert_eq!(format_distance(-0.0, 2, 2), "0.00");
+        assert_eq!(format_distance(-0.001, 4, 2), "0'-0\"");
+        assert_eq!(format_distance(-0.001, 5, 2), "0");
+        assert_eq!(format_distance(-0.001, 3, 2), "0'-0.00\"");
+        assert_eq!(format_distance(-0.0, 1, 2), "0.00E0");
+        for lunits in 1..=5 {
+            for luprec in 0..=4 {
+                let s = format_distance(-1e-9, lunits, luprec);
+                assert!(!s.starts_with('-') || lunits == 1, "LUNITS {lunits} LUPREC {luprec}: {s}");
+            }
+        }
+        assert_eq!(format_distance(-1.5, 2, 2), "-1.50");
+        assert_eq!(format_distance(-1.5, 5, 2), "-1 1/2");
+        assert_eq!(format_distance(-18.5, 4, 4), "-1'-6 1/2\"");
+        assert_eq!(format_distance(-30.0, 3, 2), "-2'-6.00\"");
     }
 
     #[test]
