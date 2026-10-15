@@ -1,5 +1,5 @@
-//! EXPORT, IMPORT, PUBLISH and PREVIEW from a menu, the tool bar or the command line: the first
-//! three ask for a file, PREVIEW shows the plot in a window. Calls with parameters (scripts, the
+//! EXPORT, IMPORT, PUBLISH and PREVIEW from a menu, the tool bar or the command line: EXPORT and
+//! IMPORT ask for a file, PUBLISH opens Publish Sheets ([`crate::publish`]), PREVIEW shows the plot. Calls with parameters (scripts, the
 //! control channel, MCP) never get here and never open a dialog: they run the engine commands.
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -31,11 +31,8 @@ pub fn route(app: &mut CadApp, id: &str) -> Result<Value, String> {
             }
         }
         "publish" => {
-            let Some(pick) = app.services.pick_save.as_ref() else { return no_picker(app, "PUBLISH", "publish {}") };
-            match pick(&format!("{stem}.pdf")) {
-                Some(path) => app.run("publish", json!({ "path": path })),
-                None => Ok(Value::Null),
-            }
+            app.ui.dialog = Some("publish".into());
+            Ok(Value::Null)
         }
         _ => {
             let Some(pick) = app.services.pick_save.as_ref() else { return no_picker(app, "EXPORT", r#"export {"format": "svg"}"#) };
@@ -176,6 +173,8 @@ mod tests {
                 b.borrow_mut().push(name.to_string());
                 None
             })),
+            pick_list: None,
+            open_path: None,
         };
         (CadApp::new(Session::new(), services), asked)
     }
@@ -184,10 +183,13 @@ mod tests {
     fn typed_and_menu_commands_ask_json_calls_never_do() {
         let (mut app, asked) = app();
         app.start("export");
-        app.cmdline("PUBLISH");
         app.start("imp");
-        assert_eq!(*asked.borrow(), ["Drawing1.svg", "Drawing1.pdf", "open"]);
+        assert_eq!(*asked.borrow(), ["Drawing1.svg", "open"]);
         assert!(app.ui.dialog.is_none());
+        app.cmdline("PUBLISH");
+        assert_eq!(app.ui.dialog.as_deref(), Some("publish"), "PUBLISH opens Publish Sheets");
+        assert_eq!(asked.borrow().len(), 2, "without asking for a file first");
+        app.ui.dialog = None;
         app.cmdline("pre");
         assert_eq!(app.ui.dialog.as_deref(), Some("preview"));
         app.ui.dialog = None;
@@ -200,7 +202,7 @@ mod tests {
         let _ = app.run("publish", json!({ "layouts": [] }));
         let r = app.run("preview", json!({ "width": 64 })).unwrap();
         assert!(r["data"].is_string());
-        assert_eq!(asked.borrow().len(), 3, "JSON calls never open a file dialog");
+        assert_eq!(asked.borrow().len(), 2, "JSON calls never open a file dialog");
         assert!(app.ui.dialog.is_none(), "nor the preview window");
 
         let e = app.run("share", json!({})).unwrap_err();

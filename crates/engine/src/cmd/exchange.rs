@@ -21,6 +21,12 @@ use super::file::{base64_decode, base64_encode, io};
 use super::*;
 use crate::{EngineError, Result, Session};
 
+mod publish;
+mod publish_list;
+
+pub use publish::{PublishJob, clear_publish_cache, fill_tokens};
+use publish::{file_part, run_publish};
+
 /// Formats EXPORT writes (the io layer picks the writer from the extension).
 pub const EXPORT_FORMATS: &[&str] = &["dxf", "dwg", "svg", "png", "pdf"];
 /// Default and largest plot preview width, in pixels.
@@ -47,7 +53,10 @@ pub fn specs() -> Vec<CommandSpec> {
             .noundo(),
         CommandSpec::new("publish", "Batch Publish...", run_publish)
             .menu(&["File", "Batch Publish..."])
-            .params("{path?: \"NAME.pdf\" (writes NAME-<sheet>.pdf per sheet; else returns base64 `data` per sheet), layouts?: [name | \"Model\"] (default: Model if it has objects, then every layout in tab order)} → {sheets: [{layout, bytes, path? | data}]}")
+            .params("{sheets?: [{drawing?: open drawing index | file path (default: the current drawing; files are read for this run only, never opened), layout: name | \"Model\", pageSetup?: {paper?, width?, height?, landscape?, fit?, scale?, margins?, plotStyleTable?, lineweights?, plotTransparency?} (this run only; the drawing doesn't change)}] (default: Model if it has objects, then every layout in tab order), to?: pdf|svg|png, folder? (made if missing; else returns base64 `data` per sheet), name?: pattern with {drawing} {sheet} {n} (default \"{drawing}-{sheet}\", or \"{drawing}\" when combining), combine?: one PDF with a page per sheet, from any drawings, pdf?: {layers?, offLayers?, text?: text|geometry}, copies?: 1 (more is not available yet), stamp?: true | {text?: with {drawing} {sheet} {n} {date} {time} (UTC), corner?: bottom-left|bottom-right|top-left|top-right, height?: mm}, action?: \"status\" (check the sheets and name the files; writes nothing → {sheets: [{drawing, layout, status: ready|default|error, reason?, file?, page?}], ready, default, errors, combined?: {file, pages}}); older form: path?: \"NAME.pdf\" (writes NAME-<sheet>.pdf), layouts?: [name | \"Model\"]} → {sheets: [{drawing, layout, ok, file, bytes, path? | data} (combining: {drawing, layout, ok, page, file}) | {drawing, layout, ok: false, error}], combined?: {file, bytes, pages, path? | data}, published, failed, copies, message}: a sheet that fails is reported and the rest still publish; an error only when none did")
+            .noundo(),
+        CommandSpec::new("publishlist", "Publish List", publish_list::run)
+            .params("{action: \"read\", path: \"NAME.ccpub\"} → {path, sheets: [{drawing: absolute path, layout, include, pageSetup?, found}], output: {to, combine, folder?, name?, layers}} | {action: \"write\", path, sheets: [{drawing: file path, layout, include?, pageSetup?}], output?} → {path, sheets}: drawing paths are stored relative to the list's folder | {action: \"drawing\", path} → {path, title, sheets: [{layout, model, page}]}: a drawing file's sheets, read without opening it")
             .noundo(),
         CommandSpec::new("pdfbook", "Sheet Books to PDF...", run_pdfbook)
             .menu(&["File", "Sheet Books to PDF..."])
@@ -361,65 +370,6 @@ fn run_preview(s: &mut Session, p: &Value) -> Result<Value> {
     let png = cadcraft_render::raster::render_png(&list, &view, &ro).ok_or_else(|| bad("preview", "rendering the preview failed"))?;
     let layout = space.tab_name();
     Ok(json!({ "data": base64_encode(&png), "width": w, "height": h, "layout": layout, "paper": page.paper, "landscape": page.landscape }))
-}
-
-// ---------- PUBLISH ----------
-
-/// A layout name made safe for a file name.
-fn file_part(name: &str) -> String {
-    name.chars().map(|c| if c.is_alphanumeric() || matches!(c, ' ' | '-' | '_' | '.') { c } else { '_' }).collect()
-}
-
-fn run_publish(s: &mut Session, p: &Value) -> Result<Value> {
-    let d = s.doc()?;
-    let sheets: Vec<String> = match p.get("layouts") {
-        Some(v) => {
-            let a = v.as_array().ok_or_else(|| bad("publish", "`layouts` must be a list of layout names"))?;
-            a.iter()
-                .map(|n| {
-                    let n = n.as_str().ok_or_else(|| bad("publish", "`layouts` must be a list of layout names"))?;
-                    if n.eq_ignore_ascii_case("model") {
-                        return Ok("Model".to_string());
-                    }
-                    d.layout(n).map(|l| l.name.clone()).ok_or_else(|| bad("publish", format!("no layout `{n}`")))
-                })
-                .collect::<Result<_>>()?
-        }
-        None => {
-            let mut layouts: Vec<_> = d.layouts.iter().collect();
-            layouts.sort_by_key(|l| l.tab_order);
-            let model = (!d.model.is_empty()).then(|| "Model".to_string());
-            model.into_iter().chain(layouts.iter().map(|l| l.name.clone())).collect()
-        }
-    };
-    if sheets.is_empty() {
-        return Err(bad("publish", "there are no sheets to publish"));
-    }
-    if sheets.len() > MAX_SHEETS {
-        return Err(bad("publish", format!("at most {MAX_SHEETS} sheets can be published at once")));
-    }
-    let base = str_param(p, "path").map(|path| {
-        let pb = std::path::Path::new(path);
-        let stem = pb.file_stem().map(|s| s.to_string_lossy().to_string()).filter(|s| !s.is_empty()).unwrap_or_else(|| "Drawing".into());
-        (pb.parent().map(std::path::Path::to_path_buf).unwrap_or_default(), stem)
-    });
-    let mut out = Vec::new();
-    for name in &sheets {
-        let mut q = json!({ "layout": name });
-        if let Some((dir, stem)) = &base {
-            q["path"] = json!(dir.join(format!("{stem}-{}.pdf", file_part(name))).to_string_lossy());
-        }
-        let mut r = s.execute("plot", &q).map_err(|e| bad("publish", format!("{name}: {e}")))?;
-        if let Some(o) = r.as_object_mut() {
-            o.insert("layout".into(), json!(name));
-        }
-        out.push(r);
-    }
-    let message = match &base {
-        Some(_) => format!("Published {} sheet(s): {}", out.len(), out.iter().filter_map(|r| r["path"].as_str()).collect::<Vec<_>>().join(", ")),
-        None => format!("Published {} sheet(s)", out.len()),
-    };
-    Ok(json!({ "sheets": out, "message": message }))
 }
 
 // ---------- PDFBOOK ----------
@@ -741,6 +691,12 @@ mod tests {
     fn publish_plots_every_sheet() {
         our_hooks();
         let mut s = session();
+        // Each layout has something on it (an empty layout has nothing to plot).
+        for layout in ["Layout1", "Layout2"] {
+            s.execute("layout.set", &json!({ "name": layout })).unwrap();
+            s.execute("line", &json!({ "points": [[0, 0], [10, 10]] })).unwrap();
+        }
+        s.execute("layout.set", &json!({ "name": "Model" })).unwrap();
         if io().and_then(|h| h.plot).is_none() {
             return;
         }

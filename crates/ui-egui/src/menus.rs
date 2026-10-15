@@ -692,6 +692,8 @@ mod tests {
                 log.borrow_mut().push(name.to_string());
                 answer.clone()
             })),
+            pick_list: None,
+            open_path: None,
         };
         (CadApp::new(Session::new(), services), asked)
     }

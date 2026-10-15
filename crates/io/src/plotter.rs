@@ -50,6 +50,40 @@ pub fn plot(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
     }
 }
 
+/// Plot sheets of several drawings into one PDF, one page each, in order: PUBLISH's combined
+/// file. Each part has its own JSON plot options (as [`plot`] takes them, so a page setup
+/// override applies to its page only); `opts` gives the file-wide ones (`title`, `layers`,
+/// `offLayers`, `text`, `compress`).
+pub fn plot_book(parts: &[(&Drawing, Space, Value)], opts: &Value) -> Result<Vec<u8>> {
+    if parts.len() > pdf::MAX_PAGES {
+        return Err(IoError::Format(format!("at most {} sheets fit in one PDF", pdf::MAX_PAGES)));
+    }
+    // A margins override changes a copy of the layout, as in `plot`.
+    let mut copies: Vec<Drawing> = Vec::new();
+    let mut plan: Vec<(Option<usize>, Space, pdf::PdfOptions)> = Vec::with_capacity(parts.len());
+    for (d, space, o) in parts {
+        pdf::validate_plot_offset_json(o)?;
+        let copy = match (space, pdf::margins(o.get("margins"))) {
+            (Space::Paper(n), Some(m)) => {
+                let mut c = (*d).clone();
+                if let Some(l) = c.layouts.iter_mut().find(|l| l.name.eq_ignore_ascii_case(n)) {
+                    l.page.margins_mm = m;
+                }
+                copies.push(c);
+                Some(copies.len() - 1)
+            }
+            _ => None,
+        };
+        plan.push((copy, space.clone(), pdf::PdfOptions::from_json(o)));
+    }
+    let mut book: Vec<(&Drawing, Space, pdf::PdfOptions)> = Vec::with_capacity(plan.len());
+    for ((d, _, _), (copy, space, po)) in parts.iter().zip(plan) {
+        let d = copy.and_then(|i| copies.get(i)).unwrap_or(d);
+        book.push((d, space, po));
+    }
+    pdf::pdf_book(&book, &pdf::PdfOptions::from_json(opts))
+}
+
 /// The sheet a plot draws on (a model-space plot's printable area inside the device margins).
 fn sheet(d: &Drawing, space: &Space, o: &PdfOptions) -> Result<(Sheet, cadcraft_doc::PageSetup)> {
     let page = pdf::page_for(d, space, o)?;
@@ -148,6 +182,51 @@ mod tests {
         let mut d = Drawing::new_metric();
         d.add(&Space::Model, Common::default(), EntityKind::Line(Line { a: Vec3::ZERO, b: Vec3::new(100.0, 50.0, 0.0) })).unwrap();
         d
+    }
+
+    /// A metric drawing with one line on each named layer.
+    fn drawing_on(layers: &[(&str, bool)]) -> Drawing {
+        let mut d = Drawing::new_metric();
+        for (i, (name, on)) in layers.iter().enumerate() {
+            let mut l = cadcraft_doc::Layer::new(name);
+            l.on = *on;
+            d.layers.push(l);
+            let y = i as f64 * 10.0;
+            let c = Common { layer: (*name).to_string(), ..Common::default() };
+            d.add(&Space::Model, c, EntityKind::Line(Line { a: Vec3::new(0.0, y, 0.0), b: Vec3::new(100.0, y, 0.0) })).unwrap();
+        }
+        d
+    }
+
+    fn count(pdf: &[u8], what: &str) -> usize {
+        String::from_utf8_lossy(pdf).matches(what).count()
+    }
+
+    #[test]
+    fn a_book_has_a_page_per_sheet_from_several_drawings() {
+        let a = drawing_on(&[("Walls", true)]);
+        let b = drawing_on(&[("WALLS", true), ("Doors", false)]);
+        let parts = [
+            (&a, Space::Model, json!({"compress": false})),
+            (&b, Space::Paper("Layout1".into()), json!({"compress": false, "paper": "A3", "landscape": true})),
+            (&b, Space::Model, json!({"compress": false})),
+        ];
+        let pdf = plot_book(&parts, &json!({"compress": false, "offLayers": true})).unwrap();
+        assert!(pdf.starts_with(b"%PDF"));
+        assert_eq!(count(&pdf, "/Type /Page "), 3, "a page per sheet");
+        assert_eq!(count(&pdf, "/Count 3"), 1);
+        // The A3 override reaches its page only: A3 landscape is 1190.551 x 841.89 points.
+        assert_eq!(count(&pdf, "/MediaBox [0 0 1190.551 841.89]"), 1, "{}", String::from_utf8_lossy(&pdf));
+        // Walls (in both drawings, any case) is one PDF layer; Doors is off, so it starts hidden.
+        assert_eq!(count(&pdf, "/Type /OCG"), 2, "Walls once, Doors once");
+        assert!(count(&pdf, "/Name (Walls)") == 1 && count(&pdf, "/Name (Doors)") == 1);
+        let off = String::from_utf8_lossy(&pdf).split("/OFF [").nth(1).map(|t| t.split(']').next().unwrap_or("").trim().to_string());
+        assert!(off.is_some_and(|ids| ids.split_whitespace().count() == 3), "one hidden layer (\"n 0 R\")");
+        // Hostile input fails cleanly.
+        assert!(plot_book(&[], &json!({})).is_err());
+        let many: Vec<(&Drawing, Space, Value)> = (0..=pdf::MAX_PAGES).map(|_| (&a, Space::Model, json!({}))).collect();
+        assert!(plot_book(&many, &json!({})).is_err());
+        assert!(plot_book(&[(&a, Space::Model, json!({"offset": [1e300, 0]}))], &json!({})).is_err());
     }
 
     #[test]

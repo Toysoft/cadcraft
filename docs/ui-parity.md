@@ -1,6 +1,6 @@
 # UI parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (animation effects follow the operating system's setting) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (Publish Sheets: background run, report, list files, sheet stamp) · **Target:** Autodesk AutoCAD 2027 for Mac (26.0)
 
 How CADCraft's interaction compares with AutoCAD's: point entry, object snaps, tracking, dynamic
 input, grips, selection, the command line, chrome and navigation. A drafter's speed in AutoCAD
@@ -161,6 +161,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 | Properties Inspector, Quick Properties | yes | yes (every control acts or is visibly unavailable, #182); block references show read-only Position X/Y/Z from their stored insertion point; coordinate editing is still missing |
 | Layer Properties Manager (filters, states, VP overrides) | yes | yes |
 | Blocks palette, Content | yes | Blocks window (click to insert, #28) |
+| Publishing several sheets at once | yes (sheet list, list files, PDF/plotter output, background job, stamp) | Publish Sheets window (PUBLISH): sheets from open drawings and from files added without opening them, ticks and order, a page setup changed for one run, PDF/SVG/PNG, one file per sheet or one combined PDF across drawings, a Status column from the engine (ready, default, will fail, file not found), `.ccpub` list files (CADCraft's own format, paths relative to the list), a background run with progress and Cancel, a Publish Report with Reveal and Publish Again, "Open the result when done", and a sheet stamp (Sheet Stamp window). Not yet: sending to a printer or plotter device, PDF quality presets, overlap handling |
 | Status bar toggles | ~25 | most toggles; Annotation Visibility and Workspace do nothing |
 | ViewCube | interactive 3D | clickable for 2D (Top/Home → extents); dragging does nothing (#7) |
 | Navigation bar, SteeringWheels | yes | no |
@@ -202,6 +203,7 @@ down-arrow options menu (DYNPROMPT), and DYNDIM.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-15 | minor | Publish Sheets window: one engine call per run, a Status column from `publish {"action": "status"}`, combining sheets of several drawings, SVG/PNG, a page setup changed for one run, Add Drawings without opening them, `.ccpub` list files, a background run with progress and Cancel, the Publish Report, and the sheet stamp |
 | 2026-10-12 | minor | Selected and hovered objects redrawn in the selection colour (text and arrowheads included); Options ▸ Selection laid out as AutoCAD's: Object grouping, Show grips, grip object limit, selection preview, Visual Effect Settings (selection area, preview filter) |
 | 2026-10-12 | minor | Animation effects (dialog and menu fades, smoothed wheel scrolling and ⌘/Ctrl+wheel zoom) follow the operating system's setting; View ▸ Accessibility ▸ Animation Effects chooses System, On or Off |
 | 2026-10-12 | minor | Hatch and Gradient / Hatch Edit dialogs (HATCH, GRADIENT, HATCHEDIT, double-click a hatch; HPDLGMODE) |

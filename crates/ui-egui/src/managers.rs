@@ -500,7 +500,7 @@ fn page_setup(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action 
             let Some((_, name, page)) = layouts.iter().find(|l| l.1 == sel) else { return };
             right.label(RichText::new(format!("Page setup of {name}")).strong());
             // Layout plotting always prints the whole sheet, so only that area is offered.
-            let rows = PageRows { areas: &["layout"], scale: true, center: true };
+            let rows = PageRows { areas: &["layout"], scale: true, center: true, device: true };
             egui::Grid::new("pagesetup_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(right, |ui| {
                 if let Some((k, v)) = page_rows(ui, egui::Id::new(("pagesetup", name)), page, &rows, &choices, None) {
                     action = Some(("pagesetup", json!({ "layout": name, k: v })));
@@ -520,6 +520,8 @@ struct PageRows {
     areas: &'static [&'static str],
     scale: bool,
     center: bool,
+    /// The printer/plotter row (Publish Sheets plots to files and leaves the device alone).
+    device: bool,
 }
 
 /// The devices and plot style tables the page-setup rows offer.
@@ -593,23 +595,41 @@ fn page_rows(
     placement: Option<(&mut bool, &mut [f64; 2], bool)>,
 ) -> Option<(&'static str, Value)> {
     let mut change = None;
+    if rows.device {
+        device_row(ui, salt, page, choices, &mut change);
+    }
+    paper_rows(ui, salt, page, rows, choices, placement, change)
+}
+
+fn device_row(ui: &mut egui::Ui, salt: egui::Id, page: &cadcraft_doc::PageSetup, choices: &PageChoices, change: &mut Option<(&'static str, Value)>) {
     ui.label("Printer/plotter");
     egui::ComboBox::from_id_salt(salt.with("device")).selected_text(device_label(page)).width(190.0).show_ui(ui, |ui| {
         if ui.selectable_label(device_label(page) == "None", "None").on_hover_text("PDF on the paper chosen below").clicked()
             && device_label(page) != "None"
         {
-            change = Some(("device", json!("None")));
+            *change = Some(("device", json!("None")));
         }
         for dev in choices.devices.iter() {
             let on = dev.name.eq_ignore_ascii_case(&page.device);
             if ui.selectable_label(on, &dev.name).on_hover_text(format!("{} ({})", dev.description, dev.output.as_str().to_uppercase())).clicked()
                 && !on
             {
-                change = Some(("device", json!(dev.name)));
+                *change = Some(("device", json!(dev.name)));
             }
         }
     });
     ui.end_row();
+}
+
+fn paper_rows(
+    ui: &mut egui::Ui,
+    salt: egui::Id,
+    page: &cadcraft_doc::PageSetup,
+    rows: &PageRows,
+    choices: &PageChoices,
+    placement: Option<(&mut bool, &mut [f64; 2], bool)>,
+    mut change: Option<(&'static str, Value)>,
+) -> Option<(&'static str, Value)> {
     // The device's papers, else the standard sizes.
     let device = choices.devices.iter().find(|dv| dv.name.eq_ignore_ascii_case(&page.device));
     ui.label("Paper size");
@@ -640,17 +660,19 @@ fn page_rows(
         }
     });
     ui.end_row();
-    ui.label("Plot area");
-    ui.add_enabled_ui(rows.areas.len() > 1, |ui| {
-        egui::ComboBox::from_id_salt(salt.with("area")).selected_text(area_label(&page.plot_area)).show_ui(ui, |ui| {
-            for a in rows.areas {
-                if ui.selectable_label(page.plot_area == *a, area_label(a)).clicked() && page.plot_area != *a {
-                    change = Some(("plotArea", json!(a)));
+    if !rows.areas.is_empty() {
+        ui.label("Plot area");
+        ui.add_enabled_ui(rows.areas.len() > 1, |ui| {
+            egui::ComboBox::from_id_salt(salt.with("area")).selected_text(area_label(&page.plot_area)).show_ui(ui, |ui| {
+                for a in rows.areas {
+                    if ui.selectable_label(page.plot_area == *a, area_label(a)).clicked() && page.plot_area != *a {
+                        change = Some(("plotArea", json!(a)));
+                    }
                 }
-            }
+            });
         });
-    });
-    ui.end_row();
+        ui.end_row();
+    }
     ui.label("");
     let mut fit = page.scale_to_fit;
     if ui.checkbox(&mut fit, "Fit to paper").changed() {
@@ -835,6 +857,54 @@ fn plot_page(d: &cadcraft_doc::Drawing, target: &str) -> cadcraft_doc::PageSetup
     page
 }
 
+// ---------- Shared with Publish Sheets ----------
+
+/// The page setup a plot of `target` ("Model" or a layout) starts from.
+pub(crate) fn sheet_page(d: &cadcraft_doc::Drawing, target: &str) -> cadcraft_doc::PageSetup {
+    plot_page(d, target)
+}
+
+/// The `pagesetup` parameters that store `page` in `layout`.
+pub(crate) fn store_params(layout: &str, page: &cadcraft_doc::PageSetup) -> Value {
+    let mut p = json!({
+        "layout": layout,
+        "device": device_label(page),
+        "landscape": page.landscape,
+        "scaleToFit": page.scale_to_fit,
+        "scale": page.scale,
+        "center": page.center,
+        "lineweights": page.lineweights,
+        "plotTransparency": page.plot_transparency,
+        "plotStyleTable": style_label(page),
+        "margins": page.margins_mm,
+    });
+    if let Some(o) = p.as_object_mut() {
+        if device_label(page) != "None" || cadcraft_render::paper_size(&page.paper).is_some() {
+            o.insert("paper".into(), json!(page.paper));
+        } else {
+            o.insert("width".into(), json!(page.width_mm));
+            o.insert("height".into(), json!(page.height_mm));
+        }
+    }
+    p
+}
+
+/// The page-setup rows of Publish Sheets for one sheet, editing `page` in place; true when
+/// something changed. Without the printer/plotter, plot area and centring rows: a run changes
+/// the paper, orientation, scale, lineweights, transparency and plot style table.
+pub(crate) fn page_editor(ui: &mut egui::Ui, salt: egui::Id, d: &cadcraft_doc::Drawing, page: &mut cadcraft_doc::PageSetup) -> bool {
+    let choices = PageChoices::new(ui.ctx(), d);
+    let rows = PageRows { areas: &[], scale: true, center: false, device: false };
+    let mut changed = false;
+    egui::Grid::new(salt.with("grid")).num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
+        if let Some((k, v)) = page_rows(ui, salt, page, &rows, &choices, None) {
+            apply_page_change(page, k, &v);
+            changed = true;
+        }
+    });
+    changed
+}
+
 /// The `plot` parameters for the dialog's settings (without the output path). `preview_dpi`
 /// asks for a PNG at that resolution instead of the device's output, on the same sheet.
 fn plot_params(st: &PlotState, preview_dpi: Option<f64>) -> Value {
@@ -950,9 +1020,9 @@ fn plot(app: &mut CadApp, ctx: &egui::Context, open: &mut bool) -> Action {
         ui.horizontal_top(|ui| {
             egui::Grid::new("plot_grid").num_columns(2).spacing(vec2(10.0, 6.0)).show(ui, |ui| {
                 let rows = if model {
-                    PageRows { areas: MODEL_AREAS, scale: true, center: false }
+                    PageRows { areas: MODEL_AREAS, scale: true, center: false, device: true }
                 } else {
-                    PageRows { areas: &["layout"], scale: false, center: false }
+                    PageRows { areas: &["layout"], scale: false, center: false, device: true }
                 };
                 let placement = model.then_some((&mut st.center, &mut st.offset_mm, offset_supported));
                 if let Some((k, v)) = page_rows(ui, egui::Id::new(("plot", st.target.as_str())), &st.page, &rows, &choices, placement) {
@@ -1154,6 +1224,18 @@ mod plot_dialog_tests {
             center: true,
             offset_mm: [0.0, 0.0],
         }
+    }
+
+    #[test]
+    fn save_to_layout_keeps_every_setting_it_shows_margins_included() {
+        let mut s = Session::new();
+        let mut page = s.doc().unwrap().layout("Layout1").unwrap().page.clone();
+        page.margins_mm = [12.0, 13.0, 14.0, 15.0];
+        page.landscape = !page.landscape;
+        s.execute("pagesetup", &store_params("Layout1", &page)).unwrap();
+        let saved = &s.doc().unwrap().layout("Layout1").unwrap().page;
+        assert_eq!(saved.margins_mm, [12.0, 13.0, 14.0, 15.0]);
+        assert_eq!(saved.landscape, page.landscape);
     }
 
     #[test]

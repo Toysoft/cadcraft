@@ -1222,6 +1222,7 @@
 	Import...	Імпорт...
 	Export...	Експорт...
 	Batch Publish...	Пакетна публікація...
+	Publish List	Список публікації
 	Scale List...	Список масштабів...
 	Annotative Object Scale	Масштаб анотативних об'єктів
 	Add Current Scale	Додати поточний масштаб
@@ -1330,3 +1331,120 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+	Publish Sheets	Публікація аркушів
+	A line of text in a corner of every sheet	Рядок тексту в куті кожного аркуша
+	Cancelling...	Скасування...
+	Corner	Кут
+	Done	Готово
+	Edit stamp...	Редагувати штамп...
+	Example	Приклад
+	Height on paper	Висота на папері
+	Keep working while the sheets are published; a report opens when they're done	Працюйте далі, поки аркуші публікуються; після завершення відкриється звіт
+	Publish Again	Опублікувати ще раз
+	Publish Report	Звіт про публікацію
+	Published {ok} of {total} sheets	Опубліковано {ok} з {total} аркушів
+	Publishing is already running.	Публікація вже триває.
+	Publishing {done} of {total} sheets...	Публікація {done} з {total} аркушів...
+	Reset	Скинути
+	Reveal in Finder	Показати у Finder
+	Sheet Stamp	Штамп аркуша
+	Show in Explorer	Показати в Провіднику
+	Show in Folder	Показати в теці
+	The web version publishes while you wait.	Вебверсія публікує, поки ви чекаєте.
+	Use {drawing}, {sheet}, {n}, {date} and {time}. The date and time are UTC.	Використовуйте {drawing}, {sheet}, {n}, {date} і {time}. Дата й час — за UTC.
+	cancelled	скасовано
+	page {n}	сторінка {n}
+	Published	Опубліковано
+	Failed	Не вдалося
+	Unsaved list	Незбережений список
+	New List	Новий список
+	Open List...	Відкрити список...
+	Save List As...	Зберегти список як...
+	{n} of {total} sheets	{n} з {total} аркушів
+	{n} of {total}	{n} з {total}
+	Move up	Перемістити вгору
+	Move down	Перемістити вниз
+	Add Drawings...	Додати креслення...
+	Add a drawing's sheets without opening it	Додати аркуші креслення, не відкриваючи його
+	Every open drawing's sheets	Аркуші всіх відкритих креслень
+	File not found	Файл не знайдено
+	Not saved yet, so left out: {names}	Ще не збережено, тому пропущено: {names}
+	Opened the list {path}	Відкрито список {path}
+	Saved the list to {path}	Список збережено в {path}
+	not open	не відкрито
+	{path} isn't there any more	{path} більше немає
+	Publish lists (CCPUB)	Списки публікації (CCPUB)
+	Publish list (CCPUB)	Список публікації (CCPUB)
+	No drawings are open. Use Add Drawings... to open one.	Немає відкритих креслень. Скористайтеся «Додати креслення...», щоб відкрити.
+	Include every open drawing	Включити всі відкриті креслення
+	Tick to publish · click a row to inspect it	Позначте, щоб публікувати · клацніть рядок, щоб переглянути
+	Sheet	Аркуш
+	Page setup	Параметри сторінки
+	Paper	Папір
+	current	поточне
+	open	відкрите
+	Remove from the list	Прибрати зі списку
+	Uses default	За замовчуванням
+	Ready	Готово
+	Checking...	Перевірка...
+	Will fail	Не вдасться
+	Changed for this run	Змінено для цього запуску
+	{n} will fail	не вдасться: {n}
+	As saved ({setup})	Як збережено ({setup})
+	Change the paper for this run only. The drawing keeps its page setup.	Змінити папір лише для цього запуску. Креслення зберігає свої параметри сторінки.
+	Portrait	Книжкова
+	Landscape	Альбомна
+	For this run only. The drawing keeps its page setup.	Лише для цього запуску. Креслення зберігає свої параметри сторінки.
+	{paper}, for this run	{paper}, для цього запуску
+	Vector SVG, one file per sheet.	Векторний SVG, один файл на аркуш.
+	PNG image, one file per sheet.	Зображення PNG, один файл на аркуш.
+	Standard — 300 dpi	Стандартна — 300 dpi
+	Only PDFs can be combined.	Об’єднувати можна лише PDF.
+	Fit to paper	Вписати в аркуш
+	Output	Вивід
+	Add a sheet stamp	Додати штамп аркуша
+	Run in the background	Виконувати у фоні
+	Open the result when done	Відкрити результат після завершення
+	Click a sheet to see it here.	Клацніть аркуш, щоб побачити його тут.
+	Details	Подробиці
+	Model space	Простір моделі
+	Not saved yet	Ще не збережено
+	landscape	альбомна
+	portrait	книжкова
+	Drawing default	Типові для креслення
+	Drawing	Креслення
+	Folder	Папка
+	Device	Пристрій
+	Setup	Параметри
+	Send to	Куди надіслати
+	PDF	PDF
+	SVG	SVG
+	PNG	PNG
+	Vector PDF. Text stays selectable.	Векторний PDF. Текст можна виділяти.
+	Quality	Якість
+	Overlaps	Перекриття
+	Last drawn on top	Останнє намальоване зверху
+	Keep layers (viewers can switch them on and off)	Зберегти шари (їх можна вмикати й вимикати під час перегляду)
+	Files	Файли
+	One per sheet	По одному на аркуш
+	Combine into one	Об'єднати в один
+	Save to	Зберегти в
+	Choose a folder	Виберіть папку
+	Choose...	Вибрати...
+	Names	Назви
+	Ask for a name when publishing	Запитувати назву під час публікації
+	{name} ({n} pages)	{name} (сторінок: {n})
+	Select at least one sheet.	Виберіть хоча б один аркуш.
+	Nothing selected	Нічого не вибрано
+	1 PDF with {n} pages	1 PDF, сторінок: {n}
+	Publish	Опублікувати
+	Choose a folder to publish to.	Виберіть папку для публікації.
+	Publishing cancelled.	Публікацію скасовано.
+	Published {ok} of {total} sheets to {folder}	Опубліковано {ok} з {total} аркушів у {folder}
+@plural	{n} file	{n} файл|{n} файли|{n} файлів
+@plural	Publish {n} Sheet	Опублікувати {n} аркуш|Опублікувати {n} аркуші|Опублікувати {n} аркушів
+	From {layout}	З {layout}
+	Keep this page setup in the layout (can be undone)	Зберегти ці параметри сторінки в макеті (можна скасувати)
+	Save to Layout	Зберегти в макет
+	Saved the page setup in {layout}	Параметри сторінки збережено в {layout}
+	Use the sheet's own page setup again	Знову використати власні параметри сторінки аркуша

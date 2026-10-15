@@ -116,6 +116,7 @@ pub fn install_io() {
         write: |d, name| cadcraft_io::write(d, name).map_err(|e| e.to_string()),
         plot: Some(|d, space, opts| cadcraft_io::plotter::plot(d, space, opts).map_err(|e| e.to_string())),
     });
+    cadcraft_engine::cmd::file::set_plot_book(|parts, opts| cadcraft_io::plotter::plot_book(parts, opts).map_err(|e| e.to_string()));
     cadcraft_engine::cmd::file::set_write_as(|d, name, o| {
         cadcraft_io::write_with(d, name, &cadcraft_io::SaveOptions { version: o.version, binary: o.binary }).map_err(|e| e.to_string())
     });
@@ -143,17 +144,72 @@ fn services() -> Services {
                 .save_file()
                 .map(|p| p.to_string_lossy().to_string())
         })),
+        pick_list: Some(Box::new(|| {
+            rfd::FileDialog::new()
+                .add_filter(i18n::t("Publish lists (CCPUB)"), &["ccpub"])
+                .add_filter(i18n::t("All files"), &["*"])
+                .pick_file()
+                .map(|p| p.to_string_lossy().to_string())
+        })),
+        open_path: Some(Box::new(open_path)),
     }
+}
+
+/// Open `path` in its usual app, or with `reveal` show it selected in the file manager. The
+/// command is started and not waited for; the path is one argument, never parsed by a shell.
+fn open_path(path: &str, reveal: bool) -> Result<(), String> {
+    let p = std::path::Path::new(path);
+    if !p.exists() {
+        return Err(format!("{path}: not found"));
+    }
+    let mut c;
+    #[cfg(target_os = "macos")]
+    {
+        c = std::process::Command::new("open");
+        if reveal {
+            c.arg("-R");
+        }
+        c.arg(p);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        c = std::process::Command::new("explorer");
+        if reveal {
+            // Explorer reads `/select,"path"` itself; Command::arg would quote the whole argument
+            // when the path has spaces, which Explorer doesn't understand.
+            c.raw_arg(format!("/select,\"{}\"", path.replace('"', "")));
+        } else {
+            c.arg(p);
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        // xdg-open can't select a file: reveal opens the folder it is in.
+        c = std::process::Command::new("xdg-open");
+        c.arg(if reveal && p.is_file() { p.parent().unwrap_or(p) } else { p });
+    }
+    let mut child = c.spawn().map_err(|e| format!("{path}: {e}"))?;
+    // `open`, `explorer` and `xdg-open` return at once; wait for them on a thread so none is left
+    // as a zombie process.
+    let _ = std::thread::Builder::new().name("cadcraft-open".into()).spawn(move || {
+        let _ = child.wait();
+    });
+    Ok(())
 }
 
 /// File types for the Save dialog, the suggested name's type first: Windows adds the first
 /// filter's extension, and macOS accepts only listed extensions, replacing any other with the
 /// first one. DWG must be listed for a `.dwg` name to survive, and a drawing opened from DWG
 /// then defaults to DWG; other names keep DXF first.
-fn filters_for_save(name: &str) -> [(&'static str, &'static str); 6] {
-    let mut filters =
-        [("Drawing (DXF)", "dxf"), ("Drawing (DWG)", "dwg"), ("Drawing Template (DWT)", "dwt"), ("SVG", "svg"), ("PNG", "png"), ("PDF", "pdf")];
+fn filters_for_save(name: &str) -> Vec<(&'static str, &'static str)> {
     let lower = name.to_ascii_lowercase();
+    // A publish list is saved as one; it isn't offered when saving a drawing or a plot.
+    if lower.ends_with(".ccpub") {
+        return vec![("Publish list (CCPUB)", "ccpub")];
+    }
+    let mut filters =
+        vec![("Drawing (DXF)", "dxf"), ("Drawing (DWG)", "dwg"), ("Drawing Template (DWT)", "dwt"), ("SVG", "svg"), ("PNG", "png"), ("PDF", "pdf")];
     filters.sort_by_key(|(_, ext)| !lower.ends_with(&format!(".{ext}")));
     filters
 }
@@ -400,7 +456,9 @@ mod tests {
         for name in ["a.dwg", "b.dxf", "c"] {
             let exts: Vec<_> = filters_for_save(name).iter().map(|(_, e)| *e).collect();
             assert!(exts.contains(&"dwg") && exts.contains(&"dxf"), "{name}");
+            assert!(!exts.contains(&"ccpub"), "a drawing's Save dialog doesn't offer publish lists");
         }
+        assert_eq!(filters_for_save("set.ccpub"), [("Publish list (CCPUB)", "ccpub")], "a list keeps its extension");
     }
 
     #[test]

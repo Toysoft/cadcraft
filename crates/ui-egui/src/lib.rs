@@ -41,6 +41,8 @@ pub mod options;
 pub mod palettes;
 pub mod parametric;
 pub mod plotstyles;
+pub mod publish;
+pub mod publish_run;
 pub mod quick;
 pub mod shortcut_menus;
 pub mod theme;
@@ -188,6 +190,11 @@ impl Default for UiState {
 pub struct Services {
     pub pick_open: Option<Box<dyn Fn() -> Option<String>>>,
     pub pick_save: Option<Box<dyn Fn(&str) -> Option<String>>>,
+    /// Choose a publish list (`.ccpub`) to open; without one, Open List... uses `pick_open`.
+    pub pick_list: Option<Box<dyn Fn() -> Option<String>>>,
+    /// Open a file in its usual app, or with `reveal` show it in the file manager (Finder,
+    /// Explorer); `Err` says why not. Without one, those buttons are disabled.
+    pub open_path: Option<Box<dyn Fn(&str, bool) -> Result<(), String>>>,
 }
 
 pub struct CadApp {
@@ -207,6 +214,8 @@ pub struct CadApp {
     pub status: Option<(String, f64)>,
     /// Drawings being read on worker threads ([`opening`]).
     pub opening: opening::Opening,
+    /// A Publish Sheets run on a worker thread, and the last run's report ([`publish_run`]).
+    pub publishing: publish_run::Publishing,
     pub integrated_titlebar: bool,
     control_rx: Option<Receiver<ControlRequest>>,
     pending_shots: Vec<(u64, Option<String>, std::sync::mpsc::Sender<Value>, f64)>,
@@ -259,6 +268,7 @@ impl CadApp {
             cmd: cmdline::CmdLine::default(),
             status: None,
             opening: opening::Opening::default(),
+            publishing: publish_run::Publishing::default(),
             integrated_titlebar: false,
             control_rx: None,
             pending_shots: Vec::new(),
@@ -563,6 +573,7 @@ impl CadApp {
         }
         self.drain_control(ctx);
         self.finish_opening();
+        publish_run::poll(self, ctx);
         self.opening.show(ctx);
         if !self.synthetic.is_empty() {
             ctx.request_repaint();
@@ -637,6 +648,7 @@ impl CadApp {
             }
         });
         dialogs::show(self, ui.ctx());
+        publish_run::card(self, ui.ctx());
         palettes::patterns::prompt_picker(self, ui.ctx());
         closing::prompt(self, ui.ctx());
         autosave::show(self, ui.ctx());

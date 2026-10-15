@@ -476,7 +476,7 @@ fn run_mview_n(s: &mut Session, p: &Value, n: usize) -> Result<Value> {
 }
 
 /// A plot scale: a number (paper units per model unit) or `"a:b"` / `"a/b"`.
-fn parse_scale(v: &Value) -> Option<f64> {
+pub(crate) fn parse_scale(v: &Value) -> Option<f64> {
     let s = match v {
         Value::Number(n) => n.as_f64(),
         Value::String(t) => {
@@ -822,19 +822,28 @@ fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
     };
     let pages = sheets.as_ref().map_or(1, Vec::len);
     match str_param(p, "path") {
-        Some(_path) => {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                let path = _path;
-                let tmp = format!("{path}.cadcraft-tmp");
-                std::fs::write(&tmp, &bytes).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
-                std::fs::rename(&tmp, path).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
-                Ok(json!({ "path": path, "bytes": bytes.len(), "layout": layout, "pages": pages }))
-            }
-            #[cfg(target_arch = "wasm32")]
-            Err(bad(cmd, "paths are not available on the web; omit `path` to get the PDF as base64 `data`"))
+        Some(path) => {
+            write_plot_file(cmd, path, &bytes)?;
+            Ok(json!({ "path": path, "bytes": bytes.len(), "layout": layout, "pages": pages }))
         }
         None => Ok(json!({ "data": base64_encode(&bytes), "bytes": bytes.len(), "layout": layout, "pages": pages })),
+    }
+}
+
+/// Write a plot to `path` through a staging file, so a failed write never leaves half a file
+/// where the old one was.
+pub(crate) fn write_plot_file(cmd: &str, path: &str, bytes: &[u8]) -> Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let tmp = format!("{path}.cadcraft-tmp");
+        std::fs::write(&tmp, bytes).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
+        std::fs::rename(&tmp, path).map_err(|e| bad(cmd, format!("{path}: {e}")))?;
+        Ok(())
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (path, bytes);
+        Err(bad(cmd, "paths are not available on the web; omit `path` to get the PDF as base64 `data`"))
     }
 }
 

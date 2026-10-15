@@ -7,8 +7,8 @@
 //! paper, and line widths come from lineweights when enabled. The page setup's plot style
 //! table (or the `plotStyleTable` option) sets the printed colours, linetypes and lineweights.
 //!
-//! Several sheets go into one file ([`pdf_sheets`], the `layouts` option), each page labelled
-//! with its layout name. Drawing layers become PDF layers (optional content groups) that a PDF
+//! Several sheets go into one file ([`pdf_sheets`], the `layouts` option; [`pdf_book`] for sheets
+//! of several drawings), each page labelled with its layout name. Drawing layers become PDF layers (optional content groups) that a PDF
 //! viewer can switch on and off, and entity hyperlinks become link annotations.
 
 use std::fmt::Write as _;
@@ -347,32 +347,54 @@ pub fn pdf_sheets(d: &Drawing, spaces: &[Space], o: &PdfOptions) -> Result<Vec<u
 /// page plots with its own options (window, paper, orientation); `o` supplies the file-wide
 /// ones (compression, title, layers, links).
 pub fn pdf_items(d: &Drawing, items: &[(Space, PdfOptions)], o: &PdfOptions) -> Result<Vec<u8>> {
-    if items.iter().any(|(_, io)| io.offset.is_some_and(|offset| !valid_plot_offset(offset))) {
+    let parts: Vec<(&Drawing, Space, PdfOptions)> = items.iter().take(MAX_PAGES + 1).map(|(s, po)| (d, s.clone(), po.clone())).collect();
+    pdf_book(&parts, o)
+}
+
+/// Write a vector PDF with one page per `(drawing, space, options)` part (at most
+/// [`MAX_PAGES`]), the drawings in any mix: PUBLISH's combined file. Each page plots its own
+/// drawing with its own options; `o` supplies the file-wide ones (compression, title, layers,
+/// links). Layers of the same name in different drawings become one PDF layer.
+pub fn pdf_book(parts: &[(&Drawing, Space, PdfOptions)], o: &PdfOptions) -> Result<Vec<u8>> {
+    if parts.iter().any(|(_, _, po)| po.offset.is_some_and(|offset| !valid_plot_offset(offset))) {
         return Err(IoError::Format("plot offset must contain two finite values within ±100000 mm".into()));
     }
-    if items.is_empty() {
+    if parts.is_empty() {
         return Err(IoError::Format("there are no sheets to plot".into()));
     }
-    if items.len() > MAX_PAGES {
+    if parts.len() > MAX_PAGES {
         return Err(IoError::Format(format!("at most {MAX_PAGES} sheets fit in one PDF")));
     }
-    // Layers that are off plot on PDF layers that start hidden: draw them from a copy with them on.
-    let with_off;
-    let drawn = if o.layers && o.include_off_layers && d.layers.iter().any(|l| !l.on && !l.frozen) {
-        let mut c = d.clone();
-        for l in c.layers.iter_mut().filter(|l| !l.frozen) {
-            l.on = true;
-        }
-        with_off = c;
-        &with_off
-    } else {
-        d
-    };
-    let links = all_links(d, o);
-    let pages = items.iter().map(|(s, po)| sheet(drawn, s, po, &links)).collect::<Result<Vec<_>>>()?;
+    // Each drawing once: layers that are off plot on PDF layers that start hidden, so they are
+    // drawn from a copy with them on; and its hyperlinks.
+    let mut drawings: Vec<(&Drawing, Option<Drawing>, Vec<(Handle, String)>)> = Vec::new();
+    let mut pages = Vec::with_capacity(parts.len());
+    for (d, space, po) in parts {
+        let at = match drawings.iter().position(|(x, _, _)| std::ptr::eq(*x, *d)) {
+            Some(at) => at,
+            None => {
+                let with_off = (o.layers && o.include_off_layers && d.layers.iter().any(|l| !l.on && !l.frozen)).then(|| {
+                    let mut c = (*d).clone();
+                    for l in c.layers.iter_mut().filter(|l| !l.frozen) {
+                        l.on = true;
+                    }
+                    c
+                });
+                drawings.push((d, with_off, all_links(d, o)));
+                drawings.len() - 1
+            }
+        };
+        let Some((_, with_off, links)) = drawings.get(at) else {
+            return Err(IoError::Format("there are no sheets to plot".into()));
+        };
+        let mut page = sheet(with_off.as_ref().unwrap_or(d), space, po, links)?;
+        // The layers' names and whether they start on come from the drawing as it is.
+        page.layer_info = page.layers.iter().map(|l| d.layers.get(*l as usize).map(|x| (x.name.clone(), x.on))).collect();
+        pages.push(page);
+    }
     let title = if o.title.is_empty() { pages.first().map(|p| p.label.clone()).unwrap_or_default() } else { o.title.clone() };
     let fonts = if o.text_as_geometry { fonts::Fonts::default() } else { fonts::Fonts::collect(pages.iter().map(|p| &p.list)) };
-    Ok(assemble(d, &pages, &fonts, o, &title))
+    Ok(assemble(&pages, &fonts, o, &title))
 }
 
 /// One plotted sheet, ready to be written as a page.
@@ -385,6 +407,8 @@ struct SheetPage {
     clip_pt: Bounds2,
     /// The drawing layers (indices in the layer table) of the content's `/L<i>` marks.
     layers: Vec<u32>,
+    /// Each of `layers`' name and whether it is on, from the drawing the page plots.
+    layer_info: Vec<Option<(String, bool)>>,
     /// Link annotations: rectangle in points and target.
     links: Vec<(Bounds2, String)>,
     /// Page label: the layout name.
@@ -449,7 +473,7 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
         }
     }
     let links = links(&list, &map, &clip_pt, links_to);
-    Ok(SheetPage { media, list, map, clip_pt, layers, links, label: sheet_name(space) })
+    Ok(SheetPage { media, list, map, clip_pt, layers, layer_info: Vec::new(), links, label: sheet_name(space) })
 }
 
 /// Source and destination origins for the shared model-space PDF/PNG placement behavior.
@@ -887,13 +911,14 @@ fn refs(ids: impl IntoIterator<Item = usize>) -> String {
 /// Assemble the file: catalog, page tree, pages with their content streams and link
 /// annotations, the PDF layers (one optional content group per drawing layer used, named
 /// like it), page labels, document information, cross-reference table and trailer.
-fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptions, title: &str) -> Vec<u8> {
+fn assemble(pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptions, title: &str) -> Vec<u8> {
     let mut objs = Objects::default();
     let catalog = objs.reserve();
     let tree = objs.reserve();
-    // Optional content groups shared by all pages, by layer index: (layer, object).
-    let mut ocg_ids: std::collections::HashMap<u32, usize> = std::collections::HashMap::new();
-    let mut ocgs: Vec<(u32, usize)> = Vec::new();
+    // Optional content groups shared by all pages, by layer name (any case, so the same layer
+    // in two drawings is one PDF layer): name → object, and (object, starts on) in order.
+    let mut ocg_ids: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut ocgs: Vec<(usize, bool)> = Vec::new();
     let mut kids = Vec::new();
     // Page dictionaries are completed once the fonts are written: (page, its fonts, the rest).
     let mut page_dicts: Vec<(usize, Vec<usize>, String, String, String)> = Vec::new();
@@ -906,14 +931,15 @@ fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptio
         used.sort_unstable();
         used.dedup();
         let mut props = String::new();
-        for l in &p.layers {
-            let Some(layer) = d.layers.get(*l as usize) else { continue };
-            let id = match ocg_ids.get(l) {
+        for (l, info) in p.layers.iter().zip(&p.layer_info) {
+            let Some((name, on)) = info else { continue };
+            let key = name.to_lowercase();
+            let id = match ocg_ids.get(&key) {
                 Some(id) => *id,
                 None => {
-                    let id = objs.add(format!("<< /Type /OCG /Name {} >>", pdf_string(&layer.name)));
-                    ocg_ids.insert(*l, id);
-                    ocgs.push((*l, id));
+                    let id = objs.add(format!("<< /Type /OCG /Name {} >>", pdf_string(name)));
+                    ocg_ids.insert(key, id);
+                    ocgs.push((id, *on));
                     id
                 }
             };
@@ -951,8 +977,8 @@ fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptio
     let mut cat = format!("<< /Type /Catalog /Pages {tree} 0 R");
     if !ocgs.is_empty() {
         // Optional content needs PDF 1.5; the catalog's version overrides the header's.
-        let off: Vec<usize> = ocgs.iter().filter(|(l, _)| d.layers.get(*l as usize).is_some_and(|l| !l.on)).map(|(_, id)| *id).collect();
-        let all = refs(ocgs.iter().map(|(_, id)| *id));
+        let off: Vec<usize> = ocgs.iter().filter(|(_, on)| !on).map(|(id, _)| *id).collect();
+        let all = refs(ocgs.iter().map(|(id, _)| *id));
         let _ = write!(cat, " /Version /1.5 /OCProperties << /OCGs [{all}] /D << /Name (Layers) /Order [{all}] /OFF [{}] >> >>", refs(off));
         if pages.len() == 1 {
             cat.push_str(" /PageMode /UseOC");
