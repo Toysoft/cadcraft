@@ -121,6 +121,8 @@ pub struct CanvasState {
     pub param: crate::parametric::Cache,
     /// A selection window opened by a press-and-drag, to close where the button is let go.
     drag_window: bool,
+    /// The lasso a press-and-drag on empty space is drawing (PICKAUTO bit 4).
+    lasso: Option<cadcraft_engine::select::Lasso>,
     /// The right-click that opened the shortcut menu held Shift or Ctrl: it is the object snap
     /// menu ([`crate::context_menu`]).
     pub snap_menu: bool,
@@ -1049,6 +1051,72 @@ fn selection_area_fill(s: &cadcraft_engine::Settings, crossing: bool) -> Option<
     s.selectionarea.then(|| Color32::from_rgb(c.0, c.1, c.2).gamma_multiply(f32::from(s.selectionareaopacity.min(100)) / 100.0))
 }
 
+/// Screen distance between the points a lasso keeps as the pointer moves.
+const LASSO_STEP_PX: f32 = 4.0;
+
+/// A lasso follows the pointer while the button is held. Spacebar cycles its mode and is used up
+/// here (at the command line it would be Enter); Escape drops the lasso; letting go selects.
+fn lasso_input(app: &mut CadApp, ui: &egui::Ui, resp: &egui::Response, xf: &Xf, shift: bool) {
+    let Some(lasso) = app.canvas.lasso.as_mut() else { return };
+    let (spaces, escape, down, at) = ui.input(|i| {
+        let spaces = i.events.iter().filter(|e| matches!(e, egui::Event::Key { key: egui::Key::Space, pressed: true, repeat: false, .. })).count();
+        (spaces, i.key_pressed(egui::Key::Escape), i.pointer.primary_down(), i.pointer.interact_pos())
+    });
+    // The key and its text can arrive in different frames: neither may reach the command line.
+    ui.ctx().input_mut(|i| {
+        i.events.retain(|e| !matches!(e, egui::Event::Key { key: egui::Key::Space, .. }) && !matches!(e, egui::Event::Text(t) if t == " "))
+    });
+    for _ in 0..spaces {
+        lasso.cycle();
+    }
+    if let Some(p) = at
+        && lasso.pts.last().is_none_or(|q| xf.to_screen(*q).distance(p) >= LASSO_STEP_PX)
+    {
+        lasso.push(xf.to_world(p));
+    }
+    if escape {
+        app.canvas.lasso = None;
+    } else if (resp.drag_stopped_by(egui::PointerButton::Primary) || !down)
+        && let Some(l) = app.canvas.lasso.take()
+        && let Err(e) = app.session.end_lasso(&l, shift)
+    {
+        app.session.echo(e.to_string());
+    }
+}
+
+/// The lasso being dragged, drawn like a selection window: a window lasso with a solid outline, a
+/// crossing lasso dashed, both filled as the selection area settings say; a fence is its path.
+fn draw_lasso(p: &egui::Painter, xf: &Xf, l: &cadcraft_engine::select::Lasso, s: &cadcraft_engine::Settings) {
+    use cadcraft_engine::select::LassoKind;
+    let t = Tokens::get();
+    let kind = l.kind();
+    let crossing = kind == LassoKind::Crossing;
+    let st = Stroke::new(1.0, if crossing { t.crossing_stroke } else { t.window_stroke });
+    let mut pts: Vec<Pos2> = l.pts.iter().map(|q| xf.to_screen(*q)).collect();
+    if kind == LassoKind::Fence {
+        p.add(Shape::line(pts, st));
+        return;
+    }
+    if let Some(fill) = selection_area_fill(s, crossing) {
+        let ring: Vec<Vec2> = pts.iter().map(|q| Vec2::new(f64::from(q.x), f64::from(q.y))).collect();
+        let mut mesh = egui::Mesh::default();
+        for q in cadcraft_render::triangulate_evenodd(&[ring]) {
+            let i = mesh.vertices.len() as u32;
+            mesh.colored_vertex(pos2(q.x as f32, q.y as f32), fill);
+            mesh.indices.push(i);
+        }
+        p.add(Shape::mesh(mesh));
+    }
+    if let Some(first) = pts.first().copied() {
+        pts.push(first);
+    }
+    if crossing {
+        p.extend(Shape::dashed_line(&pts, st, 5.0, 3.0));
+    } else {
+        p.add(Shape::line(pts, st));
+    }
+}
+
 fn draw_snap_marker(p: &egui::Painter, at: Pos2, hit: &SnapHit) {
     let t = Tokens::get();
     let s = crate::theme::snap_marker_half();
@@ -1538,7 +1606,12 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         && grip_at(app, &xf, Some(origin)).is_none()
         && crate::dyngrips::at(app, &xf, Some(origin)).is_none()
     {
-        app.canvas.drag_window = app.session.begin_window(xf.to_world(origin));
+        let at = xf.to_world(origin);
+        if app.session.lasso_at(at) {
+            app.canvas.lasso = Some(cadcraft_engine::select::Lasso::new(at));
+        } else {
+            app.canvas.drag_window = app.session.begin_window(at);
+        }
     }
     if app.canvas.drag_window && resp.drag_stopped_by(egui::PointerButton::Primary) {
         app.canvas.drag_window = false;
@@ -1552,6 +1625,7 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
             }
         }
     }
+    lasso_input(app, ui, &resp, &xf, mods.shift);
     // Right-click acts as Enter while a command runs (the classic CAD default; held, it opens the
     // command menu); otherwise it opens the shortcut menu (Repeat, Clipboard, …).
     // Shift/Ctrl+right-click opens the object snap menu.
@@ -1816,6 +1890,9 @@ pub fn show(app: &mut CadApp, ui: &mut egui::Ui) {
         } else {
             painter.rect_stroke(r, 0.0, st, egui::StrokeKind::Middle);
         }
+    }
+    if let Some(l) = &app.canvas.lasso {
+        draw_lasso(&painter, &xf, l, &app.session.settings);
     }
     // Acquired tracking points and the polar / tracking paths under the cursor.
     if app.canvas.cursor.is_some() {

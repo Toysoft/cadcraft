@@ -265,21 +265,48 @@ pub(crate) fn in_window(d: &Drawing, e: &Entity, known: Option<Bounds2>, bx: &Bo
             pl.windows(2).any(|w| w.first().zip(w.get(1)).is_some_and(|(a, b)| seg_hits_box(*a, *b, bx)))
         }
     });
-    // A crossing box entirely inside a text/block bounding rectangle also selects it.
-    if hit || (eb.contains_box(bx) && matches!(e.kind, EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_))) {
-        return true;
+    hit || encloses(e, &eb, &bx.corners())
+}
+
+/// Whether a crossing area with the points `pts` lies wholly within `e` where it is solid: the
+/// bounding rectangle of text and block references, the fill of a SOLID or TRACE (its polygon,
+/// not its bounding rectangle, which can cover empty space around a triangular solid). A
+/// crossing area there selects the object without touching its outline.
+fn encloses(e: &Entity, eb: &Bounds2, pts: &[Vec2]) -> bool {
+    if pts.is_empty() || !pts.iter().all(|p| eb.contains(*p)) {
+        return false;
     }
-    // SOLID/TRACE are filled polygons. A crossing window wholly within the
-    // fill must select them even when it does not touch their outline. Check
-    // the polygon, not just its bounding rectangle (which can cover empty
-    // space around triangular solids).
-    if matches!(e.kind, EntityKind::Solid(_) | EntityKind::Trace(_)) && eb.contains_box(bx) {
-        return e.kind.prims().iter().any(|prim| match prim {
-            Prim::Fill(poly) => bx.corners().iter().all(|p| cadcraft_geom::point_in_polygon(poly, *p)),
+    match e.kind {
+        EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Insert(_) => true,
+        EntityKind::Solid(_) | EntityKind::Trace(_) => e.kind.prims().iter().any(|prim| match prim {
+            Prim::Fill(poly) => pts.iter().all(|p| point_in_polygon(poly, *p)),
             _ => false,
-        });
+        }),
+        _ => false,
     }
-    false
+}
+
+/// Whether `e` has geometry to hit, without tessellating it: [`hit_polylines`] is empty only for
+/// text-like objects without bounds and objects without primitives.
+fn has_hit_geometry(e: &Entity, eb: &Bounds2) -> bool {
+    match e.kind {
+        EntityKind::Text(_)
+        | EntityKind::MText(_)
+        | EntityKind::Insert(_)
+        | EntityKind::Dimension(_)
+        | EntityKind::AttDef(_)
+        | EntityKind::Table(_)
+        | EntityKind::Tolerance(_)
+        | EntityKind::MLeader(_)
+        | EntityKind::Image(_) => !eb.is_empty(),
+        ref kind => !kind.prims().is_empty(),
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Segment-against-polygon-edge tests [`select_polygon`] made on this thread.
+    static EDGE_TESTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Fence selection: entities crossed by the fence polyline.
@@ -322,8 +349,12 @@ pub fn select_polygon(d: &Drawing, space: &Space, poly: &[Vec2], crossing: bool)
     let pb = Bounds2::from_points(poly.iter().copied());
     let tol = (pb.width() + pb.height()).max(1e-9) / 2000.0;
     let Some(cands) = candidates(d, space, &ix, &pb, crossing, false) else { return Vec::new() };
-    let edges: Vec<Line> =
-        poly.windows(2).filter_map(|w| Some(Line::new(*w.first()?, *w.get(1)?))).chain(poly.last().map(|l| Line::new(*l, *first))).collect();
+    let edges: Vec<(Line, Bounds2)> = poly
+        .windows(2)
+        .filter_map(|w| Some((*w.first()?, *w.get(1)?)))
+        .chain(poly.last().map(|l| (*l, *first)))
+        .map(|(a, b)| (Line::new(a, b), Bounds2::new(a, b)))
+        .collect();
     let mut out = Vec::new();
     for (e, known) in cands {
         let infinite = is_infinite(e);
@@ -334,15 +365,31 @@ pub fn select_polygon(d: &Drawing, space: &Space, poly: &[Vec2], crossing: bool)
         if !infinite && if crossing { !eb.intersects(&pb) } else { !pb.contains_box(&eb) } {
             continue;
         }
+        // Only the edges near the object can cross it: a long lasso has thousands of edges.
+        let probe = eb.expand(tol);
+        let near: Vec<&Line> = edges.iter().filter(|(_, b)| infinite || b.intersects(&probe)).map(|(l, _)| l).collect();
+        // No edge comes near: the object is wholly inside the polygon or wholly outside it.
+        if near.is_empty() {
+            if has_hit_geometry(e, &eb) && point_in_polygon(poly, eb.center()) {
+                out.push(e.handle);
+            }
+            continue;
+        }
         let polys = hit_polylines(d, e, tol);
         let crosses = polys.iter().any(|pl| {
             pl.windows(2).any(|w| {
-                w.first().zip(w.get(1)).is_some_and(|(p, q)| edges.iter().any(|f| cadcraft_geom::line_line(f, &Line::new(*p, *q)).is_some()))
+                w.first().zip(w.get(1)).is_some_and(|(p, q)| {
+                    near.iter().any(|f| {
+                        #[cfg(test)]
+                        EDGE_TESTS.with(|c| c.set(c.get() + 1));
+                        cadcraft_geom::line_line(f, &Line::new(*p, *q)).is_some()
+                    })
+                })
             })
         });
         let mut pts = polys.iter().flatten();
         let hit = if crossing {
-            crosses || pts.any(|p| point_in_polygon(poly, *p))
+            crosses || pts.any(|p| point_in_polygon(poly, *p)) || encloses(e, &eb, poly)
         } else {
             !crosses && !polys.is_empty() && pts.all(|p| point_in_polygon(poly, *p))
         };
@@ -446,6 +493,61 @@ impl SelectMode {
     }
 }
 
+/// What a lasso selects (AutoCAD's lasso modes; Spacebar cycles them while dragging).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LassoKind {
+    /// Objects entirely inside the lasso: a drag to the right.
+    Window,
+    /// Objects inside or crossing the lasso: a drag to the left.
+    Crossing,
+    /// Objects the lasso's path crosses, as with the `F` keyword.
+    Fence,
+}
+
+/// A free-form lasso drawn by a press-and-drag that starts on empty space (PICKAUTO bit 4): the
+/// points the pointer went through, the press first.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Lasso {
+    pub pts: Vec<Vec2>,
+    cycled: Option<LassoKind>,
+}
+
+impl Lasso {
+    pub fn new(start: Vec2) -> Self {
+        Lasso { pts: vec![start], cycled: None }
+    }
+    pub fn push(&mut self, p: Vec2) {
+        if p.is_finite() && self.pts.len() < MAX_MODE_POINTS {
+            self.pts.push(p);
+        }
+    }
+    /// The mode Spacebar picked, else the way the drag first went: left is a crossing lasso.
+    pub fn kind(&self) -> LassoKind {
+        match (self.cycled, self.pts.as_slice()) {
+            (Some(k), _) => k,
+            (None, [a, b, ..]) if b.x < a.x => LassoKind::Crossing,
+            _ => LassoKind::Window,
+        }
+    }
+    /// Spacebar while dragging: crossing, then window, then fence, then crossing again.
+    pub fn cycle(&mut self) {
+        self.cycled = Some(match self.kind() {
+            LassoKind::Crossing => LassoKind::Window,
+            LassoKind::Window => LassoKind::Fence,
+            LassoKind::Fence => LassoKind::Crossing,
+        });
+    }
+    /// The objects the lasso selects; the window and crossing lasso close back to the press.
+    pub fn select(&self, d: &Drawing, space: &Space) -> Vec<Handle> {
+        match self.kind() {
+            LassoKind::Window => select_polygon(d, space, &self.pts, false),
+            LassoKind::Crossing => select_polygon(d, space, &self.pts, true),
+            LassoKind::Fence if self.pts.len() >= 2 => select_fence(d, space, &self.pts),
+            LassoKind::Fence => Vec::new(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,6 +572,34 @@ mod tests {
         assert_eq!(fence_hits(EntityKind::Ray(line.clone()), [(-5.0, -5.0), (-5.0, 5.0)]), 0);
         assert_eq!(fence_hits(EntityKind::XLine(line.clone()), [(0.0, 1.0), (0.0, 5.0)]), 0);
         assert_eq!(fence_hits(EntityKind::Ray(line), [(5.0, 1.0), (5.0, 5.0)]), 0);
+    }
+
+    /// A 1500-point lasso (as a long drag samples) around 400 circles wholly inside it tests no
+    /// circle against its edges: none comes near them.
+    #[test]
+    fn a_long_lasso_tests_only_the_edges_near_an_object() {
+        let mut d = Drawing::new_metric();
+        for i in 0..20 {
+            for j in 0..20 {
+                let center = Vec3::new(f64::from(i) * 3.0 - 30.0, f64::from(j) * 3.0 - 30.0, 0.0);
+                d.add(&Space::Model, Common::default(), EntityKind::Circle(cadcraft_doc::Circle { center, radius: 1.0 })).unwrap();
+            }
+        }
+        let ring = |r: f64| -> Vec<Vec2> {
+            (0..1500).map(|k| f64::from(k) * std::f64::consts::TAU / 1500.0).map(|a| Vec2::new(r * a.cos(), r * a.sin())).collect()
+        };
+        let around = ring(100.0);
+        for crossing in [false, true] {
+            EDGE_TESTS.with(|c| c.set(0));
+            assert_eq!(select_polygon(&d, &Space::Model, &around, crossing).len(), 400);
+            assert_eq!(EDGE_TESTS.with(|c| c.get()), 0, "crossing {crossing}");
+        }
+        // A lasso through the grid still tests the circles it passes, against its nearby edges only.
+        EDGE_TESTS.with(|c| c.set(0));
+        let through = select_polygon(&d, &Space::Model, &ring(20.0), true);
+        let tests = EDGE_TESTS.with(|c| c.get());
+        assert!(!through.is_empty() && through.len() < 400);
+        assert!(tests > 0 && tests < 1_000_000, "{tests} segment tests");
     }
 }
 

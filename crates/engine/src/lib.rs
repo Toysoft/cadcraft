@@ -392,6 +392,9 @@ pub struct Settings {
     /// ACADLSPASDOC: acad.lsp loads into every drawing, not once per session.
     pub acadlspasdoc: bool,
     pub pickadd: bool,
+    /// PICKAUTO: bit 4 makes a press-and-drag on empty space draw a lasso ([`select::Lasso`]);
+    /// bits 1 and 2 are stored, not read yet (clicks on empty space always open a window).
+    pub pickauto: u8,
     /// PICKSTYLE: bit 1 picks whole selectable groups ([`cmd::groups`]), bit 2 associative hatches
     /// with their boundaries (stored, not used yet).
     pub pickstyle: u8,
@@ -477,6 +480,7 @@ impl Default for Settings {
             pickfirst: true,
             acadlspasdoc: false,
             pickadd: true,
+            pickauto: 5,
             pickstyle: 1,
             gripsize: 5.0,
             cursorsize: 5.0,
@@ -1630,6 +1634,38 @@ impl Session {
         }
         self.pending_window = Some(PendingWindow { corner, during_command });
         true
+    }
+
+    /// Whether a press-and-drag starting at `at` draws a lasso instead of a window (PICKAUTO bit
+    /// 4): only where a window could open, outside a typed selection mode, and not over an object.
+    pub fn lasso_at(&self, at: Vec2) -> bool {
+        if self.settings.pickauto & 4 == 0 || !at.is_finite() || self.select_mode.is_some() {
+            return false;
+        }
+        if self.running.is_some() && !self.current_prompt().is_some_and(|p| p.accept.select) {
+            return false;
+        }
+        let ap = self.pixel_size() * self.settings.pickbox.max(1.0) * 1.5;
+        self.doc().is_ok_and(|d| select::pick(d, &self.space(), at, ap).is_none())
+    }
+
+    /// Select with a finished lasso: the objects go to the command asking for them, or with no
+    /// command running join the selection (Shift removes them, as with a window).
+    pub fn end_lasso(&mut self, lasso: &select::Lasso, shift: bool) -> Result<()> {
+        let hs = lasso.select(self.doc()?, &self.space());
+        let hs = cmd::groups::expand(self, hs);
+        if self.running.is_some() {
+            return self.input(Input::Pick(hs));
+        }
+        let pickadd = self.settings.pickadd;
+        let mut sel = if pickadd || shift { self.selection() } else { Vec::new() };
+        if shift && pickadd {
+            sel.retain(|h| !hs.contains(h));
+        } else {
+            sel.extend(hs);
+        }
+        self.set_selection(sel);
+        Ok(())
     }
 
     /// A click with no command running: pick/toggle objects or start a selection window.
