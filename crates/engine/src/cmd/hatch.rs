@@ -6,7 +6,7 @@ pub(super) use patfile::{lines_for, run_patterns};
 
 use cadcraft_color::Color;
 use cadcraft_doc::{Drawing, Entity, EntityKind, Gradient, Handle, Hatch, HatchLoop, Space, entity_bounds};
-use cadcraft_geom::{Bounds2, PolyVertex, Polyline, Vec2, point_in_polygon};
+use cadcraft_geom::{Bounds2, PolyVertex, Polyline, Vec2, point_in_polygon, region};
 use serde_json::{Value, json};
 
 use super::helpers::lwpoly;
@@ -34,29 +34,70 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-/// Tessellated outlines of every visible curve in the space (hatch boundary candidates), each
-/// with the handle of the object it came from.
-fn outlines(d: &Drawing, space: &Space, near: Option<Bounds2>) -> (Vec<Vec<Vec2>>, Vec<Handle>) {
-    let Some(store) = d.space(space) else { return (Vec::new(), Vec::new()) };
-    let ext = d.extents(space);
-    let tol = (ext.width() + ext.height()).max(1e-9) / 20000.0;
-    let mut out = Vec::new();
-    let mut owners = Vec::new();
-    for e in store.iter() {
-        if !d.is_visible(e) || matches!(e.kind, EntityKind::Hatch(_) | EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Dimension(_)) {
-            continue;
-        }
-        if let Some(n) = near
-            && !matches!(e.kind, EntityKind::XLine(_) | EntityKind::Ray(_))
-            && !entity_bounds(d, e, 0).intersects(&n)
-        {
-            continue;
-        }
-        let polys = object_polys(d, e, tol, ext);
-        owners.extend(std::iter::repeat_n(e.handle, polys.len()));
-        out.extend(polys);
+/// How many times the window around a pick point doubles before the whole space is searched.
+const WINDOW_STEPS: u32 = 12;
+
+/// The boundary around `p` (gaps up to `gap` closed) and the object behind each curve it was
+/// found among.
+///
+/// Only the curves near the point are searched: a window around it grows until the boundary
+/// found lies inside it. Anything that could change that boundary reaches into its bounds, so
+/// into the window, and was already a candidate; the rest of a large drawing never enters the
+/// search (#1014).
+fn boundary_near(d: &Drawing, space: &Space, p: Vec2, tol: f64, gap: f64) -> Result<(region::Boundary, Vec<Handle>)> {
+    let not_found = || EngineError::Other("Valid hatch boundary not found.".into());
+    let Some(store) = d.space(space) else { return Err(not_found()) };
+    if !p.is_finite() {
+        return Err(not_found());
     }
-    (out, owners)
+    let ext = d.extents(space);
+    let size = (ext.width() + ext.height()).max(1e-9);
+    let curve_tol = size / 20000.0;
+    let candidates: Vec<(&Entity, Bounds2)> = store
+        .iter()
+        .filter(|e| {
+            d.is_visible(e) && !matches!(e.kind, EntityKind::Hatch(_) | EntityKind::Text(_) | EntityKind::MText(_) | EntityKind::Dimension(_))
+        })
+        .map(|e| (&**e, entity_bounds(d, e, 0)))
+        .collect();
+    let mut searched = usize::MAX;
+    for step in 0..=WINDOW_STEPS {
+        let r = size / f64::from(1u32 << (WINDOW_STEPS - step));
+        let window = Bounds2::new(p - Vec2::new(r, r), p + Vec2::new(r, r));
+        let last = step == WINDOW_STEPS;
+        let near: Vec<&Entity> = candidates
+            .iter()
+            .filter(|(e, b)| last || matches!(e.kind, EntityKind::XLine(_) | EntityKind::Ray(_)) || b.intersects(&window))
+            .map(|(e, _)| *e)
+            .collect();
+        // The candidates only grow with the window: the same number is the same search again.
+        if near.len() == searched {
+            continue;
+        }
+        searched = near.len();
+        let all = near.len() == candidates.len();
+        let mut polys = Vec::new();
+        let mut owners = Vec::new();
+        for e in near {
+            let pl = object_polys(d, e, curve_tol, ext);
+            owners.extend(std::iter::repeat_n(e.handle, pl.len()));
+            polys.extend(pl);
+        }
+        match region::boundary_at_gap(&polys, p, tol, gap) {
+            Some(found) if all || window.contains_box(&Bounds2::from_points(found.outer.iter().copied()).expand(gap + tol)) => {
+                return Ok((found, owners));
+            }
+            Some(_) => {}
+            None if polys.iter().map(|pl| pl.len().saturating_sub(1)).sum::<usize>() > region::MAX_SEGMENTS => {
+                return Err(EngineError::Other(
+                    "Too many objects around the point to find a hatch boundary. Select the boundary objects instead.".into(),
+                ));
+            }
+            None if all => return Err(not_found()),
+            None => {}
+        }
+    }
+    Err(not_found())
 }
 
 /// An object's outline as polylines (tolerance `tol`), infinite lines clipped to a generous
@@ -203,9 +244,7 @@ pub(crate) fn loops_at(s: &Session, p: Vec2) -> Result<Vec<HatchLoop>> {
     let space = s.space();
     let ext = d.extents(&space);
     let tol = ((ext.width() + ext.height()) * 1e-9).max(1e-9);
-    let (polys, owners) = outlines(d, &space, None);
-    let found = cadcraft_geom::region::boundary_at_gap(&polys, p, tol, gap_tolerance(d))
-        .ok_or_else(|| EngineError::Other("Valid hatch boundary not found.".into()))?;
+    let (found, owners) = boundary_near(d, &space, p, tol, gap_tolerance(d))?;
     let outer = found.outer;
     let ob = Bounds2::from_points(outer.iter().copied());
     let sources = handles_of(&owners, &found.outer_sources);

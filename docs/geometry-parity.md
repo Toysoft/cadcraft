@@ -107,7 +107,8 @@ Where line and arc are supported the results are exact.
 `geom/src/region.rs`: curves are polygonised, crossings split on a grid, vertices merged at
 `tol`, a ray picks the edge and the face is traced by sharpest left turn; islands by
 connectivity (including islands made of separate lines, #163). Caps: 60,000 segments, 4,096
-islands. Missing: **gap tolerance (HPGAPTOL)**, true arcs and curves in boundaries (boundaries
+islands; a pick point searches only the curves in a window around it that grows until the
+boundary fits inside, so the cap counts the neighbourhood, not the drawing (#1014). Missing: **gap tolerance (HPGAPTOL)**, true arcs and curves in boundaries (boundaries
 come out tessellated, so a hatched circle's boundary is a polygon), island detection modes
 beyond the default, boundary sets, and retained associative boundaries for every case. Pattern
 lines are scanline families clipped against the tessellated loops (`render/src/hatch.rs`).
@@ -162,3 +163,4 @@ Total ≈ 90–140 h; items 1–6 parallelise across two or three agents.
 | 2026-10-11 | minor | FILLET with elliptical arcs and splines; trim/extend section 55% → 65% (#466) |
 | 2026-10-11 | minor | FILLET/CHAMFER with polyline segments (same polyline, end segment with a line); section 65% → 70% (#466) |
 | 2026-10-11 | minor | Constraint solver (#546): DOF report, G2 Smooth, ellipse/spline/block geometry, CONSTRAINTINFER |
+| 2026-10-14 | trivial | HATCH/GRADIENT/BOUNDARY pick points search a growing window around the point, not the whole drawing: boundaries are found in drawings past the 60,000-segment cap (#1014) |

@@ -2,8 +2,8 @@
 //! hatches, island style, linking and unlinking boundaries, recreated boundaries, -HATCHEDIT.
 
 use cadcraft_engine::Session;
-use cadcraft_engine::doc::{EntityKind, Handle, Hatch};
-use cadcraft_engine::geom::Vec2;
+use cadcraft_engine::doc::{Common, EntityKind, Handle, Hatch, Line, Space};
+use cadcraft_engine::geom::{Vec2, Vec3};
 use serde_json::{Value, json};
 
 fn hatch(s: &Session, h: &str) -> Hatch {
@@ -171,4 +171,39 @@ fn hatchedit_refuses_unknown_patterns_and_region_boundaries() {
     assert!(hatch(&s, &h).solid);
     // Region boundaries need REGION objects; the hatch is left as it was.
     assert!(s.execute("hatchedit", &json!({ "handles": [h], "recreate": "region" })).is_err());
+}
+
+/// A drawing with more curves than the boundary search takes at once, far from the origin.
+fn crowded(s: &mut Session) {
+    let d = s.doc_mut().unwrap();
+    for i in 0..70_000u32 {
+        let (x, y) = (1000.0 + f64::from(i % 500) * 3.0, 1000.0 + f64::from(i / 500) * 3.0);
+        let line = Line { a: Vec3::new(x, y, 0.0), b: Vec3::new(x + 1.0, y + 1.0, 0.0) };
+        d.add(&Space::Model, Common::default(), EntityKind::Line(line)).unwrap();
+    }
+}
+
+#[test]
+fn pick_point_in_a_crowded_drawing_finds_the_boundary() {
+    // #1014: the whole drawing went into the boundary search, which gives up above its cap.
+    let mut s = Session::new();
+    crowded(&mut s);
+    let r = rect(&mut s, [0.0, 0.0], [10.0, 10.0]);
+    let island = rect(&mut s, [4.0, 4.0], [6.0, 6.0]);
+    let h = handle(&s.execute("hatch", &json!({ "points": [[2, 2]], "pattern": "SOLID" })).unwrap());
+    let hh = hatch(&s, &h);
+    assert_eq!(hh.loops.len(), 2, "outer loop and island");
+    assert_eq!(hh.loops[0].sources, vec![Handle::parse_hex(&r).unwrap()]);
+    assert_eq!(hh.loops[1].sources, vec![Handle::parse_hex(&island).unwrap()]);
+    // A boundary much larger than the first windows around the point, made of separate lines.
+    for pts in [[[-900, -900], [900, -900]], [[900, -900], [900, 900]], [[900, 900], [-900, 900]], [[-900, 900], [-900, -900]]] {
+        s.execute("line", &json!({ "points": pts })).unwrap();
+    }
+    let big = handle(&s.execute("hatch", &json!({ "points": [[-500, -500]], "pattern": "SOLID" })).unwrap());
+    let bh = hatch(&s, &big);
+    assert_eq!(bh.loops[0].sources.len(), 4);
+    assert_eq!(bh.loops.len(), 3, "the rectangle and the square nested in it are islands");
+    // No boundary at all, and one inside the crowd: errors, never a hang or a panic.
+    assert!(s.execute("hatch", &json!({ "points": [[-5000, -5000]] })).is_err());
+    assert!(s.execute("hatch", &json!({ "points": [[1700.2, 1200.9]] })).is_err());
 }
