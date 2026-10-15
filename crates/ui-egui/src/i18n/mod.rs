@@ -15,6 +15,8 @@ pub enum Preference {
     Auto,
     #[serde(rename = "en")]
     English,
+    #[serde(rename = "el")]
+    Greek,
     #[serde(rename = "uk")]
     Ukrainian,
     #[serde(rename = "pt-BR")]
@@ -42,9 +44,10 @@ pub enum Preference {
 }
 
 impl Preference {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Auto,
         Self::English,
+        Self::Greek,
         Self::Ukrainian,
         Self::BrazilianPortuguese,
         Self::German,
@@ -72,6 +75,7 @@ impl Preference {
         match self {
             Self::Auto => "auto",
             Self::English => "en",
+            Self::Greek => "el",
             Self::Ukrainian => "uk",
             Self::BrazilianPortuguese => "pt-BR",
             Self::German => "de",
@@ -91,6 +95,7 @@ impl Preference {
         match self {
             Self::Auto => t("Auto (system language)"),
             Self::English => "English",
+            Self::Greek => "Ελληνικά",
             Self::Ukrainian => "Українська",
             Self::BrazilianPortuguese => "Português (Brasil)",
             Self::German => "Deutsch",
@@ -124,6 +129,7 @@ impl Preference {
     pub fn resolve(self, locales: &[String]) -> &'static str {
         match self {
             Self::English => "en",
+            Self::Greek => "el",
             Self::Ukrainian => "uk",
             Self::BrazilianPortuguese => "pt-BR",
             Self::German => "de",
@@ -152,8 +158,10 @@ pub struct Language {
     catalog: OnceLock<Catalog<'static>>,
 }
 
-pub static LANGUAGES: [Language; 13] = [
+pub static LANGUAGES: [Language; 14] = [
     Language { code: "en", name: "English", source: "", plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
+    // Greek: one for exactly 1; other for zero and all other integer counts.
+    Language { code: "el", name: "Ελληνικά", source: include_str!("el.tsv"), plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
     Language {
         code: "uk", name: "Українська", source: include_str!("uk.tsv"), plural: plural_uk, plural_forms: 3, catalog: OnceLock::new()
     },
