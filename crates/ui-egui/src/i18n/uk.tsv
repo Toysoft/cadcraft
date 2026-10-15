@@ -172,6 +172,7 @@
 	Contributors	Учасники
 	Control Vertices	Керувальні вершини
 	Convert	Перетворити
+	Convert Text to Mtext	Перетворити текст на багаторядковий текст
 	Copy	Копіювати
 	Copy Full File Path	Копіювати повний шлях до файлу
 	Copy History	Копіювати історію
@@ -328,6 +329,7 @@
 	Export Table	Експортувати таблицю
 	Export to PDF...	Експортувати в PDF...
 	Expression	Вираз
+	Express Tools	Інструменти Express
 	Extend	Подовжити
 	Extension	Продовження
 	Extents	За межами об'єктів

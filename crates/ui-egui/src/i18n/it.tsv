@@ -175,6 +175,7 @@ menu	Modify	Edita
 	Contributors	Collaboratori
 	Control Vertices	Vertici di controllo
 	Convert	Converti
+	Convert Text to Mtext	Converti testo in testo multilinea
 	Copy	Copia
 	Copy Full File Path	Copia percorso completo del file
 	Copy History	Copia cronologia
@@ -330,6 +331,7 @@ menu	Modify	Edita
 	Export Table	Esporta tabella
 	Export to PDF...	Esporta in PDF...
 	Expression	Espressione
+	Express Tools	Strumenti Express
 	Extend	Estendi
 	Extension	Estensione
 	Extents	Estensioni
