@@ -144,11 +144,12 @@ fn run_tolerance(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 /// TOLERANCE at the command line: characteristic, two tolerance values, up to three datums,
-/// then the location.
+/// then the location. A frame the Geometric Tolerance dialog composed asks for the location only.
 struct ToleranceM {
     step: usize,
     line: GdtLine,
     style: String,
+    frame: Option<String>,
 }
 
 const SYMBOL_KW: &[&str] = &[
@@ -174,10 +175,13 @@ const VALUE: Accept = Accept { point: false, number: false, text: false, select:
 
 impl ToleranceM {
     fn new(s: &Session) -> Self {
-        ToleranceM { step: 0, line: GdtLine { symbol: Some(GdtSymbol::Position), ..Default::default() }, style: current_dimstyle(s) }
+        ToleranceM { step: 0, line: GdtLine { symbol: Some(GdtSymbol::Position), ..Default::default() }, style: current_dimstyle(s), frame: None }
     }
     fn text(&self) -> String {
-        cadcraft_doc::compose_frame(&GdtFrame { lines: vec![self.line.clone()], ..Default::default() })
+        match &self.frame {
+            Some(t) => t.clone(),
+            None => cadcraft_doc::compose_frame(&GdtFrame { lines: vec![self.line.clone()], ..Default::default() }),
+        }
     }
     fn at_location(&mut self, s: &mut Session) -> Step {
         self.step = 6;
@@ -266,6 +270,31 @@ impl Interactive for ToleranceM {
     }
     fn preview(&self, _s: &Session, c: Vec2) -> Vec<EntityKind> {
         if self.step == 6 { vec![EntityKind::Tolerance(make(self.style.clone(), c, 0.0, self.text()))] } else { Vec::new() }
+    }
+}
+
+impl Session {
+    /// TOLERANCE with the frame `text` already composed (the Geometric Tolerance dialog's OK):
+    /// only "Enter tolerance location" remains. An empty frame starts nothing.
+    pub fn start_tolerance_location(&mut self, text: String) -> Result<()> {
+        if self.running.is_some() {
+            self.cancel();
+        }
+        let text: String = text.chars().take(MAX_FRAME_CHARS).collect();
+        if cadcraft_doc::parse_frame(&text).iter().flatten().all(cadcraft_doc::compartment_is_empty) {
+            self.echo("The feature control frame is empty.");
+            return Ok(());
+        }
+        let mut m = ToleranceM::new(self);
+        m.frame = Some(text);
+        m.step = 6;
+        let machine = crate::guard::Guarded::wrap(Box::new(m));
+        let st = self.state()?;
+        let (before, selection_before) = (st.doc.clone(), st.selection.clone());
+        self.running = Some(crate::Running { id: "tolerance".into(), machine, before, selection_before });
+        self.pending_window = None;
+        self.last_command = Some("tolerance".into());
+        Ok(())
     }
 }
 

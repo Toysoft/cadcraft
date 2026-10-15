@@ -1330,3 +1330,31 @@
 	Justify	За шириною
 	Text color	Колір тексту
 	Click the ruler to add a tab stop, right-click to remove one	Натисніть на лінійку, щоб додати табуляцію; права кнопка видаляє її
+	Geometric Tolerance	Допуск форми та розташування
+	Sym	Символ
+	Symbol	Символ
+	Tolerance 1	Допуск 1
+	Tolerance 2	Допуск 2
+	Datum 1	База 1
+	Datum 2	База 2
+	Datum 3	База 3
+	Projected Tolerance Zone	Виступаюче поле допуску
+	Datum Identifier	Позначення бази
+	Material Condition	Умова матеріалу
+	Position	Позиційність
+	Concentricity	Співвісність
+	Symmetry	Симетричність
+	Parallelism	Паралельність
+	Perpendicularity	Перпендикулярність
+	Angularity	Нахил
+	Cylindricity	Циліндричність
+	Flatness	Площинність
+	Circularity	Круглість
+	Straightness	Прямолінійність
+	Profile of a surface	Форма заданої поверхні
+	Profile of a line	Форма заданого профілю
+	Circular runout	Радіальне биття
+	Total runout	Повне радіальне биття
+	Maximum material condition	Максимум матеріалу
+	Least material condition	Мінімум матеріалу
+	Regardless of feature size	Незалежно від розміру елемента

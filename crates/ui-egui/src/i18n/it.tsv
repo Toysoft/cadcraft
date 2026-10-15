@@ -1237,3 +1237,31 @@ menu	Modify	Edita
 	Search for pattern	Cerca modello
 	Run Script...	Esegui script...
 	Select closed objects (regions, closed polylines, circles).	Selezionare oggetti chiusi (regioni, polilinee chiuse, cerchi).
+	Geometric Tolerance	Tolleranza geometrica
+	Sym	Sim
+	Symbol	Simbolo
+	Tolerance 1	Tolleranza 1
+	Tolerance 2	Tolleranza 2
+	Datum 1	Riferimento 1
+	Datum 2	Riferimento 2
+	Datum 3	Riferimento 3
+	Projected Tolerance Zone	Zona di tolleranza proiettata
+	Datum Identifier	Identificatore di riferimento
+	Material Condition	Condizione del materiale
+	Position	Posizione
+	Concentricity	Concentricità
+	Symmetry	Simmetria
+	Parallelism	Parallelismo
+	Perpendicularity	Perpendicolarità
+	Angularity	Inclinazione
+	Cylindricity	Cilindricità
+	Flatness	Planarità
+	Circularity	Circolarità
+	Straightness	Rettilineità
+	Profile of a surface	Profilo di una superficie
+	Profile of a line	Profilo di una linea
+	Circular runout	Oscillazione circolare
+	Total runout	Oscillazione totale
+	Maximum material condition	Massimo materiale
+	Least material condition	Minimo materiale
+	Regardless of feature size	Indipendentemente dalla dimensione

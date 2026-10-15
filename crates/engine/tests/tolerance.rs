@@ -150,3 +150,25 @@ fn hostile_params_are_refused_without_panicking() {
         }
     }
 }
+
+#[test]
+fn the_dialogs_frame_asks_only_for_the_location() {
+    let mut s = Session::new();
+    let text = "{\\Fgdt;j}%%v{\\Fgdt;n}0.1{\\Fgdt;m}%%v%%vA^J2.5{\\Fgdt;p}^JD";
+    s.start_tolerance_location(text.into()).unwrap();
+    assert_eq!(s.running.as_ref().map(|r| r.id.as_str()), Some("tolerance"));
+    assert!(s.prompt_text().contains("Enter tolerance location"), "{}", s.prompt_text());
+    s.cmdline("4,5").unwrap();
+    assert!(s.running.is_none(), "{}", s.prompt_text());
+    let (_, t) = tolerance(&s);
+    assert_eq!(t.text, text);
+    assert!(near(t.insert, Vec3::new(4.0, 5.0, 0.0)));
+    // Escape at the location: nothing is added.
+    s.start_tolerance_location("{\\Fgdt;c}%%v0.05".into()).unwrap();
+    s.cancel();
+    assert_eq!(s.doc().unwrap().model.iter().filter(|e| matches!(e.kind, EntityKind::Tolerance(_))).count(), 1);
+    // An empty frame never asks.
+    s.start_tolerance_location("%%v%%v^J".into()).unwrap();
+    assert!(s.running.is_none());
+    assert_eq!(s.doc().unwrap().model.iter().filter(|e| matches!(e.kind, EntityKind::Tolerance(_))).count(), 1);
+}
