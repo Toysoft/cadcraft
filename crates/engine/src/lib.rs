@@ -892,7 +892,7 @@ impl Session {
         };
         // Opening or closing the Block Editor swaps the whole drawing: nothing in it changed.
         if self.state().is_ok_and(|s| s.block_edit.is_some()) == editing {
-            self.after_command(before.as_ref().map(|b| &b.0), before.as_ref().map(|b| b.2), spec.undoable && result.is_ok());
+            self.after_command(before.as_ref().map(|b| &b.0), before.as_ref().map(|b| b.2), spec.undoable && result.is_ok(), spec.restores);
         }
         let result = match (result, &before) {
             (Ok(v), Some((doc, sel, uid))) if spec.undoable => self.refuse_non_finite(Some(*uid), doc, sel, spec.id).map(|()| v),
@@ -1273,7 +1273,7 @@ impl Session {
         if let Some(m) = cmd::blocks::refedit::after_command(self, &run.before, &run.id) {
             self.echo(m);
         }
-        self.after_command(Some(&run.before), None, true);
+        self.after_command(Some(&run.before), None, true, find_command(&run.id).is_some_and(|c| c.restores));
         // A transparent command's changes belong to the command it ran inside, and a command a
         // LISP routine ran belongs to the routine's single undo step.
         if self.suspended.is_some() || self.lisp_groups_undo() {
@@ -1299,11 +1299,13 @@ impl Session {
     ///
     /// `before` is the drawing the command started from; `uid` (when known) is the document it
     /// started in, so associativity is not applied across a document switch; `ok` is false for a
-    /// failed or non-undoable programmatic command, which skips the constraint pass.
-    fn after_command(&mut self, before: Option<&Arc<Drawing>>, uid: Option<u64>, ok: bool) {
+    /// failed or non-undoable programmatic command, which skips the constraint pass; `restores` is
+    /// true for a command that swapped in a stored snapshot (UNDO, REDO), which skips the
+    /// associative-dimension pass.
+    fn after_command(&mut self, before: Option<&Arc<Drawing>>, uid: Option<u64>, ok: bool, restores: bool) {
         cmd::groups::after_command(self, before);
         cmd::constraints::after_command(self, before, ok);
-        assoc::after_command(self, before, uid);
+        assoc::after_command(self, before, uid, restores);
     }
 
     fn resume_suspended(&mut self) {

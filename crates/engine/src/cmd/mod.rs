@@ -72,6 +72,10 @@ pub struct CommandSpec {
     pub interactive: Option<Factory>,
     /// Can run inside another command with a leading apostrophe.
     pub transparent: bool,
+    /// Swaps the drawing for a stored snapshot (UNDO, REDO): the restored drawing is already
+    /// consistent, so associative dimensions must not follow the difference from the drawing it
+    /// replaced (a handle that survives a command can name another point there).
+    pub restores: bool,
 }
 
 impl CommandSpec {
@@ -88,6 +92,7 @@ impl CommandSpec {
             undoable: true,
             interactive: None,
             transparent: false,
+            restores: false,
         }
     }
     pub const fn menu(mut self, m: &'static [&'static str]) -> Self {
@@ -116,6 +121,10 @@ impl CommandSpec {
     }
     pub const fn interactive(mut self, f: Factory) -> Self {
         self.interactive = Some(f);
+        self
+    }
+    pub const fn restores(mut self) -> Self {
+        self.restores = true;
         self
     }
     pub const fn transparent(mut self) -> Self {

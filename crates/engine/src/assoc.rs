@@ -333,15 +333,21 @@ pub fn update(after: &mut Arc<Drawing>, before: &Drawing) -> usize {
 }
 
 /// The post-command pass: called by `Session::execute` and when an interactive command
-/// finishes. `uid` (when known) is the document the command started in.
-pub fn after_command(s: &mut crate::Session, before: Option<&Arc<Drawing>>, uid: Option<u64>) {
+/// finishes. `uid` (when known) is the document the command started in. `restores` is true for
+/// a command that swapped in a stored snapshot (UNDO, REDO): the restored dimensions already
+/// match their geometry, and a handle common to both drawings can name another point in each, so
+/// the dimension pass is skipped. The hatch pass still runs: it can detach a hatch whose loops
+/// differ from the drawing it replaced, but that is what it did before and is left as it was.
+pub fn after_command(s: &mut crate::Session, before: Option<&Arc<Drawing>>, uid: Option<u64>, restores: bool) {
     let Some(before) = before else { return };
     let mut notes = Vec::new();
     if let Ok(st) = s.state_mut()
         && uid.is_none_or(|u| u == st.uid)
         && !Arc::ptr_eq(before, &st.doc)
     {
-        update(&mut st.doc, before);
+        if !restores {
+            update(&mut st.doc, before);
+        }
         notes = crate::cmd::hatch::refill_associative(&mut st.doc, before);
     }
     notes.into_iter().for_each(|n| s.echo(n));
