@@ -637,7 +637,9 @@ fn history_window(app: &CadApp, ui: &mut egui::Ui, r: Rect) {
             for l in log.get(rows).into_iter().flatten() {
                 let (row, _) = ui.allocate_exact_size(vec2(ui.available_width(), LINE_H), Sense::hover());
                 let p = ui.painter().with_clip_rect(row.intersect(ui.clip_rect()));
-                p.text(pos2(row.left(), row.center().y), egui::Align2::LEFT_CENTER, l, crate::theme::small(), t.text_dim);
+                // Static engine echoes (Nothing to undo., *Cancel*, …) follow the interface
+                // language like prompts do; interpolated lines fall back to English.
+                p.text(pos2(row.left(), row.center().y), egui::Align2::LEFT_CENTER, crate::i18n::t(l), crate::theme::small(), t.text_dim);
             }
         },
     );

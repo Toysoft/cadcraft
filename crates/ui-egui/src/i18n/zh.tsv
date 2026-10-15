@@ -4,16 +4,23 @@
 # UTF-8: context<TAB>English source<TAB>Chinese translation.
 # Empty context = ordinary label; @plural = one|other forms with {n}.
 # Command IDs, typed keywords, technology/product names and user data stay unchanged.
+	  (none)	  (无)
 	  Cancel  	取消
 	  OK  	确定
 	 or [	 或 [
 	% of all commits	% 的所有提交
 	* Wildcard Match	* 通配符匹配
+	** Command not allowed in Model Tab ** (switch to a layout first)	** 此命令不允许在“模型”选项卡中使用 **(请先切换到布局)
+	******** WARNING ********	******** 警告 ********
+	*Cancel*	*取消*
+	*Invalid selection*	*无效选择*
 	*VARIES*	*多值*
 	+  |  Top  |  2D Wireframe	+  |  俯视  |  二维线框
 	+Bin	+Bin
 	+LOC	+LOC
+	0 found	找到 0 个
 	1 Viewport	1 个视口
+	1 object was on a locked layer.	1 个对象位于锁定图层上。
 	2 Points	2 点
 	2 Viewports	2 个视口
 	2D Solid	二维实体
@@ -27,6 +34,10 @@
 	<> Not Equal	<> 不等于
 	= Equals	= 等于
 	> Greater than	> 大于
+	A closed spline has no end tangents.	闭合样条曲线没有端点切向。
+	A multileader needs a leader line or content; nothing was drawn.	多重引线需要引线或内容;未绘制任何对象。
+	A rotation axis (3D) is not available yet; specify the center point.	旋转轴(三维)尚不可用;请指定中心点。
+	A transparent command is already in progress.	透明命令已在执行中。
 	About	关于
 	About CADCraft	关于 CADCraft
 	Absolute	绝对
@@ -36,6 +47,7 @@
 	Aligned	对齐
 	All	全部
 	All Used Layers	所有已使用的图层
+	All edits have been undone.	所有编辑均已放弃。
 	All files	所有文件
 	Angle	角度
 	Angular	角度
@@ -85,6 +97,9 @@
 	ByLayer	ByLayer
 	CADCraft Help	CADCraft 帮助
 	Cancel	取消
+	Cannot join to a closed spline.	无法合并到闭合样条曲线。
+	Cannot measure that object.	无法测量该对象。
+	Cannot offset that object.	无法偏移该对象。
 	Cartesian (x, y)	笛卡尔坐标 (x, y)
 	Center	中心
 	Center Line	中心线
@@ -100,10 +115,14 @@
 	Chamfer	倒角
 	Change Space	修改空间
 	Change to Current Layer	改至当前图层
+	Choose one of the options.	请选择其中一个选项。
 	Circle	圆
+	Circle does not exist.	圆不存在。
 	Circumference	圆周
 	Clear	清除
 	Clipboard	剪贴板
+	Clipboard is empty.	剪贴板为空。
+	Clipping boundary deleted.	剪裁边界已删除。
 	Close	关闭
 	Close All	全部关闭
 	Closed	已关闭
@@ -115,6 +134,7 @@
 	Color 8	颜色 8
 	Color 9	颜色 9
 	Color Index	颜色索引
+	Color books are not available yet.	颜色簿尚不可用。
 	Color...	颜色...
 	Command History	命令行历史
 	Command Line	命令行
@@ -186,6 +206,7 @@
 	Distance	距离
 	Divide	定数等分
 	Do not plot (click: plot)	不打印（点击：打印）
+	Do you wish to continue?	是否继续?
 	Donut	圆环
 	Double-click to edit the description	双击编辑描述
 	Down	向下
@@ -550,7 +571,40 @@
 	Open a drawing first.	请先打开一个图形。
 	Plot table type	打印样式表类型
 	Color-dependent	颜色相关
+	Edit the source objects, then enter ARRAYCLOSE to save or discard the changes.	编辑源对象,然后输入 ARRAYCLOSE 保存或放弃更改。
+	Enter Yes or No.	输入 Yes 或 No。
+	Enter a ratio such as 1:50.	输入比例(如 1:50)。
+	Enter an option [Distribute/make segments Parallel/Specify spacing/Use current spacing]: type D, P, S or U.	输入选项 [Distribute/make segments Parallel/Specify spacing/Use current spacing]:键入 D、P、S 或 U。
+	Everything has been undone	所有操作均已放弃
+	Group reordered.	编组已重新排序。
+	Insert mode: Copy (nested objects are copied as independent objects).	插入模式: 复制(嵌套对象作为独立对象复制)。
+	Invalid block name.	无效的块名。
+	Invalid group name.	无效的编组名。
+	Invalid option keyword.	无效的选项关键字。
+	Invalid option.	无效的选项。
+	Invalid point.	无效的点。
+	Key points are not available yet; specify a point.	关键点尚不可用;请指定一个点。
+	Loaded linetypes:	已加载的线型:
 	Named	命名
+	No annotative objects selected.	未选择注释性对象。
+	No command alias file is loaded; ALIASEDIT {file} loads one.	未加载命令别名文件;使用 ALIASEDIT {file} 可加载。
+	No dimensions selected.	未选择标注。
+	No hatch selected.	未选择填充。
+	No leader to remove.	没有可删除的引线。
+	No line or arc to continue.	没有可继续的直线或圆弧。
+	No linear dimension to continue. Create one with DIMLINEAR first.	没有可继续的线性标注。请先用 DIMLINEAR 创建一个。
+	No matching groups found.	未找到匹配的编组。
+	No object found.	未找到对象。
+	No table cell there.	该处没有表格单元。
+	No table there.	该处没有表格。
+	No viewport found there.	该处没有视口。
+	No xrefs are attached.	未附着外部参照。
+	Nothing to undo.	没有可放弃的操作。
+	Object cannot be dimensioned this way.	无法以这种方式标注该对象。
+	Object selected is not a circle or arc.	选定的对象不是圆或圆弧。
+	Object selected is not a dimension.	选定的对象不是标注。
+	Orthographic views are not available yet: CADCraft views are 2D.	正交视图尚不可用:CADCraft 视图为二维。
+	Performing global editing of attribute values.	正在对属性值进行全局编辑。
 	Plus/minus	正/负
 	Point	点
 	Point Filters	点过滤器
@@ -617,17 +671,31 @@
 	Rename Text Style	重命名文字样式
 	Rename...	重命名...
 	Repeat {command}	重复 {command}
+	Replaced items were restored.	被替换的对象已恢复。
+	Requires a geometric characteristic or None.	需要几何特性或 None。
+	Requires a non-negative number or Auto.	需要非负数值或 Auto。
+	Requires a non-negative number.	需要非负数值。
+	Requires a number.	需要数值。
 	Requires a point (x,y, @dx,dy or @d<a).	需要一个点 (x,y, @dx,dy 或 @d<a)。
+	Requires a positive number or Off.	需要正数或 Off。
+	Requires a positive number.	需要正数。
+	Requires a valid angle.	需要有效的角度。
+	Requires an integer between 0 and 1.	需要 0 到 1 之间的整数。
+	Requires an integer between 0 and 3.	需要 0 到 3 之间的整数。
+	Requires the name of a block defined in the drawing.	需要图形中已定义的块名。
 	Reset Palettes	重置选项板
 	Restore	恢复
 	Restore Layer State	恢复图层状态
 	Reverse	反向
 	Reverse the order	反转顺序
 	Revision Cloud	修订云线
+	Revision cloud finished.	修订云线完成。
 	Revolve	旋转
 	Right	右
 	Rotate	旋转
+	Rotating/scaling a copy of the selected objects.	正在旋转/缩放选定对象的副本。
 	Rotation	旋转
+	Row elevations need an associative array; the copies stay at the same elevation.	行标高需要关联阵列;副本保持在同一标高。
 	S	S
 	Save	保存
 	Save (⌘S)	保存 (⌘S)
@@ -651,6 +719,7 @@
 	Select a closed polyline.	选择一条闭合多段线。
 	Select a curve as the path.	选择一条曲线作为路径。
 	Select a dimension constraint type	选择尺寸约束类型
+	Select a dimension.	选择标注。
 	Select a line object	选择直线对象
 	Select a line object.	选择一条直线对象。
 	Select a line or an arc.	选择直线或圆弧。
@@ -659,10 +728,13 @@
 	Select a line, arc, circle, polyline, ellipse or spline as the path.	选择直线、圆弧、圆、多段线、椭圆或样条曲线作为路径。
 	Select a line, circle, arc or polyline segment.	选择直线、圆、圆弧或多段线段。
 	Select a line.	选择一条直线。
+	Select a linear or aligned dimension.	选择线性标注或对齐标注。
+	Select a multileader.	选择多重引线。
 	Select a polyline.	选择一条多段线。
 	Select a text, mtext, attribute definition or dimension.	选择文字、多行文字、属性定义或标注。
 	Select an annotation object	选择注释对象
 	Select an arc or circle	选择圆弧或圆
+	Select an arc, circle or line.	选择圆弧、圆或直线。
 	Select an arc.	选择一段圆弧。
 	Select an object	选择对象
 	Select an object to change or	Select an object to change or
@@ -704,6 +776,8 @@
 	Select path curve	选择路径曲线
 	Select point or object	选择点或对象
 	Select polyline or	选择多段线或
+	Select regions to subtract ..	选择要减去的面域 ..
+	Select regions to subtract from ..	选择要从中减去的面域 ..
 	Select second line	选择第二条直线
 	Select second line or shift-select to apply corner	选择第二条直线，或按 Shift 键应用角点
 	Select second object	选择第二个对象
@@ -895,6 +969,13 @@
 	Switch between model space in a viewport and paper space	在视口中的模型空间与图纸空间之间切换
 	Symmetric	对称
 	Synchronize Attributes	同步属性
+	The changes to the array were discarded.	对阵列的更改已放弃。
+	The feature control frame is empty.	特征控制框为空。
+	The object is not a table.	该对象不是表格。
+	The selected object has no area.	选定的对象没有面积。
+	The two points must be different.	两个点必须不同。
+	Third pair ignored (2D align).	第三对被忽略(二维对齐)。
+	This is a dynamic block: its parameters and actions are kept but can't be edited in CADCraft yet.	这是动态块:其参数和动作已保留,但尚不能在 CADCraft 中编辑。
 	Toggle PICKADD (off: each pick replaces the selection)	切换 PICKADD（关闭：每次点击替换当前选择）
 	Toggle PICKADD (on: picks add to the selection)	切换 PICKADD（开启：点击会添加到选择集）
 	TOP	俯视
@@ -913,10 +994,13 @@
 	Text override	文字替代
 	Text style	文字样式
 	Thaw All Layers	解冻所有图层
+	The array no longer exists; the edited objects stay in the drawing.	阵列已不存在;编辑过的对象保留在图形中。
+	The spline has no fit data.	该样条曲线没有拟合数据。
 	There is nothing here yet.	这里什么也没有。
 	Thickness	厚度
 	Time	时间
 	To get started, create or open a drawing.	若要开始，请创建或打开一个图形。
+	Too many point modifiers.	点修饰符过多。
 	Tool Bar	工具栏
 	Tool Sets	工具集
 	Tools	工具
@@ -960,6 +1044,7 @@
 	Viewport	视口
 	Viewport Layer Freeze	视口图层冻结
 	Viewport Properties	视口特性
+	Viewport created, zoomed to the model extents.	视口已创建,并缩放至模型范围。
 	Viewport {id}	视口 {id}
 	Viewports	视口
 	W	W

@@ -884,3 +884,24 @@ fn default_fonts_cover_swedish_letters_and_quotes() {
         }
     });
 }
+
+/// The engine's static echo lines (command history) are catalog rows, so the history follows
+/// the interface language like prompts do; interpolated lines fall back to English (gaps.md L1).
+#[test]
+fn command_history_echoes_translate_into_chinese() {
+    for (source, want) in [
+        ("Nothing to undo.", "没有可放弃的操作。"),
+        ("*Cancel*", "*取消*"),
+        ("0 found", "找到 0 个"),
+        ("Requires a valid angle.", "需要有效的角度。"),
+        ("Select regions to subtract from ..", "选择要从中减去的面域 .."),
+    ] {
+        assert_eq!(with_language("zh", || t(source)), want, "{source}");
+    }
+    // Interpolated and uncatalogued history lines stay verbatim.
+    assert_eq!(with_language("zh", || t("Command: CIRCLE")), "Command: CIRCLE");
+    assert_eq!(
+        with_language("zh", || t("invalid parameters for `array`: `count` must be a number")),
+        "invalid parameters for `array`: `count` must be a number"
+    );
+}

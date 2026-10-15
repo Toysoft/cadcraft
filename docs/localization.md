@@ -56,8 +56,10 @@ by @RicSchonfelder with AI assistance and have not yet been proofread by a nativ
 Drawing titles, layer/layout/block/style names, parameter names and expressions, text in a
 drawing, and command-line input are user data and retain their original spelling. Clickable
 command keywords retain their English spelling so the text shown matches the input accepted
-by the engine. CLI/MCP/control responses, engine diagnostics and command history remain
-English. Uncatalogued text also falls back to English. Number formatting and the operating
+by the engine. CLI/MCP/control responses and engine diagnostics with interpolated values
+remain English. The command history's static echo lines (Nothing to undo., *Cancel*, …)
+follow the interface language like prompts; interpolated output falls back to English.
+Uncatalogued text also falls back to English. Number formatting and the operating
 system's own file-picker controls follow the existing behavior.
 
 The bundled egui fonts cover Ukrainian (`Ґґ Єє Іі Її`), German (`ÄÖÜ äöü ß`), and Czech
