@@ -35,6 +35,7 @@ pub mod i18n;
 pub mod icons;
 pub mod layers;
 pub mod managers;
+pub mod menu_layout;
 pub mod menus;
 pub mod opening;
 pub mod options;
@@ -84,6 +85,9 @@ pub struct UiState {
     /// pointer"), screen readers, recorders and remote desktops track the system cursor and lose it
     /// when it is hidden. Off by default; `CADCRAFT_SYSTEM_CURSOR=1` turns it on at startup.
     pub system_cursor: bool,
+    /// Whether Alt and a letter opens a menu of the in-window bar. `None` follows the platform:
+    /// on everywhere but macOS, where Option and a letter types a character.
+    pub menu_access_keys: Option<bool>,
     /// "Drafting" or "Modeling".
     pub toolset_tab: String,
     pub collapsed_groups: Vec<String>,
@@ -166,6 +170,7 @@ impl Default for UiState {
             show_ucs_icon: true,
             show_layer_list: false,
             system_cursor: std::env::var("CADCRAFT_SYSTEM_CURSOR").is_ok_and(|v| !matches!(v.trim(), "" | "0" | "false" | "off")),
+            menu_access_keys: None,
             toolset_tab: "Drafting".into(),
             collapsed_groups: Vec::new(),
             hidden_tools: Vec::new(),
@@ -225,7 +230,11 @@ pub struct CadApp {
     /// Whether egui was last told to animate (`None` until the first frame).
     shown_animations: Option<bool>,
     pub frame_ms: f64,
+    /// The app runs on macOS (from egui, so the web build knows too).
+    pub on_mac: bool,
     pub quit_requested: bool,
+    /// A web page to open in the browser on the next frame (Help ▸ Join the ArtCraft Discord).
+    pub open_url: Option<String>,
     /// The app may close although drawings have unsaved changes (they were dealt with, or the
     /// quit came from the control channel, which never asks).
     pub quit_confirmed: bool,
@@ -272,7 +281,9 @@ impl CadApp {
             shown_follows_system: false,
             shown_animations: None,
             frame_ms: 0.0,
+            on_mac: cfg!(target_os = "macos"),
             quit_requested: false,
+            open_url: None,
             quit_confirmed: false,
             closing: None,
             autosave: None,
@@ -285,7 +296,7 @@ impl CadApp {
     }
 
     /// The interface language shown: the chosen one, or English when this computer has no font
-    /// for it (Chinese or Korean without a suitable font would be boxes).
+    /// for it (Chinese, Thai or Korean without a suitable font would be boxes).
     pub fn language(&self) -> &'static str {
         let l = self.ui.interface_language.resolve(&self.system_languages);
         if theme::can_show(l) { l } else { "en" }
@@ -527,6 +538,10 @@ impl CadApp {
 
     /// Per-frame logic before layout.
     pub fn logic(&mut self, ctx: &egui::Context) {
+        self.on_mac = ctx.os().is_mac();
+        if let Some(url) = self.open_url.take() {
+            ctx.open_url(egui::OpenUrl::new_tab(url));
+        }
         // A long LISP routine runs a slice per frame, so the window stays live (and Esc stops it).
         self.session.lisp_tick();
         if self.session.lisp_busy() {
@@ -607,6 +622,11 @@ impl CadApp {
         }
         let n = n.min(self.synthetic.len());
         raw.events.extend(self.synthetic.drain(..n));
+    }
+
+    /// Whether Alt and a letter opens a menu of the in-window bar ([`UiState::menu_access_keys`]).
+    pub fn menu_access_keys(&self) -> bool {
+        self.ui.menu_access_keys.unwrap_or(!self.on_mac)
     }
 
     /// Lay out the whole window.
