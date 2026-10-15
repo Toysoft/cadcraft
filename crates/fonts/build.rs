@@ -55,7 +55,13 @@ fn craft_fonts(dir: &std::path::Path) -> Result<String, String> {
         if wasm && !web_face {
             continue;
         }
+        // The manifest names files inside the fonts folder only: an absolute or `..` entry would
+        // embed any file on the build machine into the binary.
+        let root = dir.canonicalize().map_err(|e| format!("{}: {e}", dir.display()))?;
         let path = dir.join(file).canonicalize().map_err(|e| format!("{file}: {e}"))?;
+        if !path.starts_with(&root) {
+            return Err(format!("{file}: outside {}", dir.display()));
+        }
         println!("cargo::rerun-if-changed={}", path.display());
         let scripts: Vec<String> = scripts.split(',').map(|s| format!("{:?}", s.trim())).collect();
         let _ = writeln!(

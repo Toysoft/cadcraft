@@ -22,11 +22,15 @@ pub struct Spline {
     pub fit_opts: FitOptions,
 }
 
+/// Highest degree a spline may have. Basis evaluation is quadratic in the degree, so a degree
+/// read from a file (DXF allows any integer) must be bounded; AutoCAD itself stops at 10.
+pub const MAX_DEGREE: usize = 25;
+
 impl Spline {
     /// A clamped uniform spline over control points.
     pub fn from_control(control: Vec<Vec2>, degree: usize) -> Spline {
         let n = control.len();
-        let degree = degree.clamp(1, n.saturating_sub(1).max(1));
+        let degree = degree.clamp(1, n.saturating_sub(1).max(1)).min(MAX_DEGREE);
         let knots = clamped_uniform_knots(n, degree);
         Spline { degree, knots, control, weights: Vec::new(), fit: Vec::new(), closed: false, fit_opts: FitOptions::default() }
     }
@@ -57,7 +61,10 @@ impl Spline {
 
     pub fn is_valid(&self) -> bool {
         let n = self.control.len();
-        n > self.degree && self.degree >= 1 && self.knots.len() == n + self.degree + 1 && self.knots.windows(2).all(|w| w.first() <= w.get(1))
+        n > self.degree
+            && (1..=MAX_DEGREE).contains(&self.degree)
+            && self.knots.len() == n + self.degree + 1
+            && self.knots.windows(2).all(|w| w.first() <= w.get(1))
     }
 
     pub fn domain(&self) -> (f64, f64) {

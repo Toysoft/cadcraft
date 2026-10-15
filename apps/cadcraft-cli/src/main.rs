@@ -5,7 +5,7 @@
 //! cadcraft-cli convert IN.dxf OUT.(dxf|svg|png) [--window x0,y0,x1,y1 | --view extents|current]
 //! cadcraft-cli run [FILE|--sample|--metric] [--script TEXT|--script-file F.scr] [--cmd 'id {json}']... [--save OUT] [--export OUT.png] [--window ... | --view ...]
 //! cadcraft-cli commands [FILTER]                   command catalog (JSON)
-//! cadcraft-cli mcp [--connect HOST:PORT [--lazy] [--launch]]  MCP server on stdio (headless or bridged to the app)
+//! cadcraft-cli mcp [--connect HOST:PORT [--lazy] [--launch] [--token TOKEN | --token-file FILE]]  MCP server on stdio (headless or bridged to the app)
 //! cadcraft-cli perf [N]                            timing table on a synthetic N-entity drawing
 //! cadcraft-cli perf FILE                           canvas display-list build of a drawing, zoomed in step by step
 //! cadcraft-cli sample (bracket|floorplan) OUT       write a built-in sample drawing
@@ -31,6 +31,7 @@ use std::process::ExitCode;
 use cadcraft_engine::doc::Space;
 use cadcraft_engine::geom::{Bounds2, Vec2};
 use cadcraft_engine::{Session, View};
+use cadcraft_mcp::Token;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -60,7 +61,7 @@ const USAGE: &str = "usage:
   cadcraft-cli convert IN.dxf OUT.(dxf|dwg|svg|png|pdf) [FRAMING]
   cadcraft-cli run [FILE | --sample | --metric] [--script TEXT] [--script-file F.scr] [--cmd 'id {json}']... [--save OUT.dxf] [--export OUT.(png|svg|pdf)] [FRAMING]
   cadcraft-cli commands [FILTER]
-  cadcraft-cli mcp [--connect HOST:PORT [--lazy] [--launch]]
+  cadcraft-cli mcp [--connect HOST:PORT [--lazy] [--launch] [--token TOKEN | --token-file FILE]]
   cadcraft-cli perf [N | FILE]
   cadcraft-cli sample (bracket|floorplan) OUT.(dxf|dwg|svg|png)
   cadcraft-cli --version
@@ -544,8 +545,9 @@ enum McpTarget {
     /// An in-process drawing session (no `--connect`).
     Headless,
     /// The running app's control channel at `HOST:PORT`; `lazy`: reached at the first call;
-    /// `launch`: opened then if it isn't running.
-    Connect { addr: String, lazy: bool, launch: bool },
+    /// `launch`: opened then if it isn't running; `token`: the control token to send (by default
+    /// `CADCRAFT_CONTROL_TOKEN` or the app's `<settings>/control.token`).
+    Connect { addr: String, lazy: bool, launch: bool, token: Token },
 }
 
 /// Parses the arguments after `mcp`. `--connect` must be followed by a `HOST:PORT`; a missing,
@@ -553,6 +555,7 @@ enum McpTarget {
 fn parse_mcp_args(args: &[String]) -> Result<McpTarget, String> {
     let mut addr: Option<String> = None;
     let (mut lazy, mut launch) = (false, false);
+    let mut token: Option<Token> = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -569,21 +572,28 @@ fn parse_mcp_args(args: &[String]) -> Result<McpTarget, String> {
             }
             "--lazy" => lazy = true,
             "--launch" => launch = true,
+            "--token" | "--token-file" => {
+                let v = it.next().map(|v| v.trim()).filter(|v| !v.is_empty() && !v.starts_with('-')).ok_or_else(|| format!("{a} needs a value"))?;
+                if token.is_some() {
+                    return Err("--token/--token-file given more than once".into());
+                }
+                token = Some(if a == "--token" { Token::Value(v.to_string()) } else { Token::File(v.into()) });
+            }
             other => return Err(format!("mcp: unknown argument {other}\n{USAGE}")),
         }
     }
     match addr {
         // `--launch` connects at the first call too (the app opens then).
-        Some(addr) => Ok(McpTarget::Connect { addr, lazy: lazy || launch, launch }),
-        None if lazy || launch => Err("--lazy and --launch need --connect HOST:PORT".into()),
+        Some(addr) => Ok(McpTarget::Connect { addr, lazy: lazy || launch, launch, token: token.unwrap_or(Token::Default) }),
+        None if lazy || launch || token.is_some() => Err("--lazy, --launch, --token and --token-file need --connect HOST:PORT".into()),
         None => Ok(McpTarget::Headless),
     }
 }
 
 fn mcp(args: &[String]) -> Result<(), String> {
     let backend: Box<dyn cadcraft_mcp::Backend> = match parse_mcp_args(args)? {
-        McpTarget::Connect { addr, lazy: true, launch } => Box::new(cadcraft_mcp::Remote::lazy(&addr, launch)),
-        McpTarget::Connect { addr, .. } => match cadcraft_mcp::Remote::connect(&addr) {
+        McpTarget::Connect { addr, lazy: true, launch, token } => Box::new(cadcraft_mcp::Remote::lazy(&addr, launch, token)),
+        McpTarget::Connect { addr, token, .. } => match cadcraft_mcp::Remote::connect(&addr, token) {
             Ok(r) => Box::new(r),
             Err(e) => return Err(format!("cadcraft-cli: cannot connect to {addr}: {e}")),
         },
@@ -609,7 +619,7 @@ mod mcp_args_tests {
 
     #[test]
     fn mcp_connect_with_address_selects_remote() {
-        let to = |addr: &str, lazy, launch| Ok(McpTarget::Connect { addr: addr.into(), lazy, launch });
+        let to = |addr: &str, lazy, launch| Ok(McpTarget::Connect { addr: addr.into(), lazy, launch, token: Token::Default });
         assert_eq!(parse_mcp_args(&args(&["--connect", "127.0.0.1:7979"])), to("127.0.0.1:7979", false, false));
         assert_eq!(parse_mcp_args(&args(&["--connect", "localhost:7979"])), to("localhost:7979", false, false));
         assert_eq!(parse_mcp_args(&args(&["--lazy", "--connect", "localhost:7979"])), to("localhost:7979", true, false));
@@ -617,6 +627,19 @@ mod mcp_args_tests {
         // Without an app to reach they mean nothing: never a headless session.
         assert!(parse_mcp_args(&args(&["--lazy"])).is_err());
         assert!(parse_mcp_args(&args(&["--launch"])).is_err());
+    }
+
+    #[test]
+    fn mcp_token_comes_from_the_flags_or_the_default_places() {
+        let with = |token| Ok(McpTarget::Connect { addr: "127.0.0.1:7979".into(), lazy: false, launch: false, token });
+        assert_eq!(parse_mcp_args(&args(&["--connect", "127.0.0.1:7979", "--token", "abc"])), with(Token::Value("abc".into())));
+        assert_eq!(
+            parse_mcp_args(&args(&["--token-file", "/t/control.token", "--connect", "127.0.0.1:7979"])),
+            with(Token::File("/t/control.token".into()))
+        );
+        assert!(parse_mcp_args(&args(&["--connect", "127.0.0.1:7979", "--token"])).is_err(), "a value is needed");
+        assert!(parse_mcp_args(&args(&["--connect", "127.0.0.1:7979", "--token", "a", "--token-file", "f"])).is_err());
+        assert!(parse_mcp_args(&args(&["--token", "abc"])).is_err(), "a token without an app to reach means nothing");
     }
 
     #[test]

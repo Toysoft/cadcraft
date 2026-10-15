@@ -551,7 +551,11 @@ pub fn save_screenshot(image: &egui::ColorImage, path: Option<&str>) -> Value {
         buf.extend_from_slice(&c.to_array());
     }
     let Some(img) = image::RgbaImage::from_raw(w as u32, h as u32, buf) else { return json!({"ok": false, "error": "bad image"}) };
-    let path = path.map(str::to_string).unwrap_or_else(|| std::env::temp_dir().join("cadcraft-shot.png").to_string_lossy().to_string());
+    // A fixed name in the shared temp folder could be another user's symlink; this one is ours.
+    let path = path.map(str::to_string).unwrap_or_else(|| {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        std::env::temp_dir().join(format!("cadcraft-shot-{}-{nanos:08x}.png", std::process::id())).to_string_lossy().to_string()
+    });
     match img.save(&path) {
         Ok(()) => json!({"ok": true, "result": {"path": path, "width": w, "height": h}}),
         Err(e) => json!({"ok": false, "error": e.to_string()}),

@@ -186,7 +186,7 @@ fn a_lazy_bridge_starts_without_the_app_and_says_how_to_open_it() {
         let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         l.local_addr().unwrap().to_string()
     };
-    let mut s = Server::new(Box::new(crate::Remote::lazy(&addr, false)));
+    let mut s = Server::new(Box::new(crate::Remote::lazy(&addr, false, crate::Token::Value("secret".into()))));
     let init = call(&mut s, 1, "initialize", json!({"protocolVersion": "2025-06-18"}));
     assert_eq!(init["result"]["serverInfo"]["name"], "cadcraft");
     let tools = call(&mut s, 2, "tools/list", json!({}));
@@ -203,7 +203,9 @@ fn a_lazy_bridge_starts_without_the_app_and_says_how_to_open_it() {
         let (sock, _) = listener.accept().unwrap();
         let mut line = String::new();
         std::io::BufReader::new(sock.try_clone().unwrap()).read_line(&mut line).unwrap();
-        let id = serde_json::from_str::<Value>(&line).unwrap()["id"].clone();
+        let req = serde_json::from_str::<Value>(&line).unwrap();
+        assert_eq!(req["token"], json!("secret"), "every request carries the control token: {line}");
+        let id = req["id"].clone();
         writeln!(&sock, "{}", json!({"id": id, "ok": true, "result": {"prompt": "Command:"}})).unwrap();
     });
     let r = call(&mut s, 4, "tools/call", json!({"name": "command_line", "arguments": {"text": ""}}));

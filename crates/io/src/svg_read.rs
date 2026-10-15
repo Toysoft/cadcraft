@@ -36,7 +36,10 @@ const MAX_LAYERS: usize = 256;
 /// Nested `<g>`/`<svg>` transforms.
 const MAX_TRANSFORM_DEPTH: usize = 64;
 /// Flattened chords per elliptical arc under a non-uniform transform.
-const MAX_ARC_CHORDS: usize = 10_000;
+const MAX_ARC_CHORDS: usize = 512;
+/// Vertices (polyline vertices, spline control and fit points) per file. Arcs and curves flatten
+/// to many vertices each, so a small file could otherwise fill memory.
+const MAX_TOTAL_VERTICES: usize = 20_000_000;
 
 /// Elements whose whole subtree is skipped (paint servers, text, raster images, metadata).
 const SKIP: &[&[u8]] = &[
@@ -125,6 +128,8 @@ struct Parser {
     layers: HashSet<String>,
     layer_color: u8,
     elements: usize,
+    /// Vertices added so far (see [`MAX_TOTAL_VERTICES`]).
+    vertices: usize,
     /// > 0 while inside a skipped subtree; counts the starts seen there.
     skip: usize,
 }
@@ -138,6 +143,7 @@ impl Parser {
             layers: HashSet::from(["0".to_string()]),
             layer_color: 1,
             elements: 0,
+            vertices: 0,
             skip: 0,
         }
     }
@@ -264,6 +270,15 @@ impl Parser {
         self.elements += 1;
         if self.elements > MAX_ELEMENTS {
             return Err(IoError::Format(format!("SVG: more than {MAX_ELEMENTS} elements")));
+        }
+        let n = match &kind {
+            EntityKind::LwPolyline(p) => p.vertices.len(),
+            EntityKind::Spline(sp) => sp.control.len() + sp.fit.len(),
+            _ => 1,
+        };
+        self.vertices = self.vertices.saturating_add(n);
+        if self.vertices > MAX_TOTAL_VERTICES {
+            return Err(IoError::Format(format!("SVG: more than {MAX_TOTAL_VERTICES} vertices")));
         }
         let common = Common { layer: self.layer.clone(), ..Common::default() };
         self.drawing.add(&Space::Model, common, kind).map(|_| ()).map_err(parse_err)
@@ -888,7 +903,9 @@ fn flatten_arc(m: &Mat3, p0: Vec2, p1: Vec2, rx: f64, ry: f64, rot_deg: f64, lar
         .ok_or_else(|| IoError::Format("SVG: elliptical arc cannot be converted".into()))?;
     let axes = Mat3::rotate(rot_deg.to_radians());
     let rmax = rx.max(ry);
-    let tol = 0.05_f64;
+    // Relative to the radius, like `cadcraft_geom::arc_segments`: an absolute tolerance would make
+    // every large arc hit the chord cap, turning a 25-byte segment into thousands of vertices.
+    let tol = 0.05_f64.max(rmax * 1e-4);
     let steps = if rmax > tol {
         let step = 2.0 * (1.0 - (tol / rmax).min(1.0)).acos().max(1e-6);
         ((delta.abs() / step).ceil() as usize).clamp(8, MAX_ARC_CHORDS)

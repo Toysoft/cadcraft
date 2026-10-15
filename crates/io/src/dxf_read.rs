@@ -1,6 +1,6 @@
 //! DXF → Drawing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cadcraft_color::{Color, Rgb};
 use cadcraft_doc::*;
@@ -651,6 +651,12 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
             let n = get(i)?.i64().clamp(0, 1_000_000) as usize;
             i += 1;
             for _ in 0..n {
+                // Curved edges tessellate to many vertices each (an elliptic or spline edge a few
+                // hundred bytes long can make thousands); past the budget the rest of the loop's
+                // edges are skipped rather than letting a small file fill memory.
+                if verts.len() > MAX_HATCH_VERTICES {
+                    break;
+                }
                 while get(i).is_some_and(|x| x.code != 72) {
                     i += 1;
                 }
@@ -723,7 +729,9 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
                         while let Some(x) = get(i).filter(|x| matches!(x.code, 94 | 73 | 74 | 95 | 96)) {
                             let n = x.i64().clamp(0, 100_000) as usize;
                             match x.code {
-                                94 => degree = n,
+                                // Basis evaluation is quadratic in the degree: a hostile degree
+                                // (100 000 fits the tag) would hang the import for hours (#sec).
+                                94 => degree = n.clamp(1, MAX_HATCH_SPLINE_DEGREE),
                                 95 => nk = n,
                                 96 => nc = n,
                                 _ => {}
@@ -825,6 +833,10 @@ fn hatch(tags: &[Tag], t: &T) -> Option<EntityKind> {
 
 /// Upper bound on the source boundary objects of one HATCH loop.
 const MAX_HATCH_SOURCES: usize = 4096;
+/// Degree of a hatch boundary spline edge (group 94); the SPLINE entity allows the same.
+const MAX_HATCH_SPLINE_DEGREE: usize = 10;
+/// Vertices one hatch's boundary loops tessellate to before the remaining edges are dropped.
+const MAX_HATCH_VERTICES: usize = 2_000_000;
 
 /// Upper bounds on a HATCH's pattern definition lines and on the dashes of one line.
 const MAX_PATTERN_LINES: usize = 1024;
@@ -1757,12 +1769,20 @@ pub fn read(bytes: &[u8]) -> Result<Drawing> {
         paper_block_for.insert("*PAPER_SPACE".into(), "Layout1".into());
     }
     let first_layout = d.layouts.first().map(|l| l.name.clone()).unwrap_or_else(|| "Layout1".into());
+    // Layers entities name but the LAYER table doesn't: found through a set, not a scan of the
+    // layer list per entity (a file naming a fresh layer on each of a million entities took hours).
+    let mut layer_names: HashSet<String> = d.layers.iter().map(|l| l.name.to_ascii_uppercase()).collect();
+    let mut ensure_layer = |d: &mut Drawing, name: &str| {
+        if !name.is_empty() && layer_names.insert(name.to_ascii_uppercase()) {
+            d.layers.push(Layer::new(name));
+        }
+    };
     // Blocks: model/paper space blocks hold entities in newer files.
     for (name, base, description, ents, xref) in blocks {
         let up = name.to_ascii_uppercase();
         if up == "*MODEL_SPACE" {
             for (_, _, e) in ents {
-                d.ensure_layer(&e.common.layer);
+                ensure_layer(&mut d, &e.common.layer);
                 d.model.push(e);
             }
             continue;
@@ -1805,7 +1825,7 @@ pub fn read(bytes: &[u8]) -> Result<Drawing> {
     }
     // ENTITIES section: model space, or paper space when flagged (67=1).
     for (owner, paper, e) in entities {
-        d.ensure_layer(&e.common.layer);
+        ensure_layer(&mut d, &e.common.layer);
         let owner_name = owner.and_then(|o| rx.brs.get(&o.trim().to_ascii_uppercase()).cloned()).map(|n| n.to_ascii_uppercase());
         let to_paper = paper || owner_name.as_deref().is_some_and(|n| n.starts_with("*PAPER_SPACE"));
         if to_paper {

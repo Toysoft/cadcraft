@@ -115,12 +115,34 @@ impl Outcome {
 
 /// What one load (with its nested xrefs) has used so far.
 struct Ctx {
+    /// Only files under this folder are read (the host drawing's folder, when the load wasn't
+    /// asked for by the user); `None` when any file may be read.
+    root: Option<Confine>,
     /// The files being loaded, outermost first (a file already here is a circular reference).
     chain: Vec<PathBuf>,
     objects: usize,
     files: usize,
     /// Messages about nested xrefs.
     notes: Vec<String>,
+}
+
+/// Where an automatic load (on OPEN) may read from: the host drawing's folder and its subfolders,
+/// or nothing when the drawing has no folder. A received drawing names its xrefs itself, so
+/// without this it could make the app read any file the user can (`../../private/plan.dwg`, an
+/// absolute path, a network share) and show it to whoever drives the app. The user's own XREF
+/// Reload, Attach and Path load from anywhere.
+enum Confine {
+    Under(PathBuf),
+    Nowhere,
+}
+
+impl Confine {
+    fn allows(&self, file: &Path) -> bool {
+        match self {
+            Confine::Under(root) => canonical(file).starts_with(root),
+            Confine::Nowhere => false,
+        }
+    }
 }
 
 /// The folder of the host drawing at `host` (a file path).
@@ -189,7 +211,9 @@ fn read(file: &Path) -> Result<Drawing, String> {
     }
 }
 
-/// Load every xref of `d` that isn't unloaded; `host` is the drawing's own path.
+/// Load every xref of `d` that isn't unloaded, as OPEN does; `host` is the drawing's own path.
+/// Only files in the host's folder (and below) are read; others stay unresolved until the user
+/// reloads them (see [`Confine`]).
 pub(crate) fn load_all(d: &mut Drawing, host: Option<&str>) -> Vec<Outcome> {
     let names: Vec<String> = d
         .blocks
@@ -197,15 +221,20 @@ pub(crate) fn load_all(d: &mut Drawing, host: Option<&str>) -> Vec<Outcome> {
         .filter(|b| b.xref_path.is_some() && b.xref_status != XrefStatus::Unloaded && !b.name.contains('|'))
         .map(|b| b.name.clone())
         .collect();
-    names.iter().flat_map(|n| load(d, n, host)).collect()
+    names.iter().flat_map(|n| load_with(d, n, host, true)).collect()
 }
 
-/// Load (or reload) xref `name` of `d` from its file; `host` is the drawing's own path. Returns
-/// the outcome, then notes about its nested xrefs.
+/// Load (or reload) xref `name` of `d` from its file at the user's request; `host` is the
+/// drawing's own path. Returns the outcome, then notes about its nested xrefs.
 pub(crate) fn load(d: &mut Drawing, name: &str, host: Option<&str>) -> Vec<Outcome> {
+    load_with(d, name, host, false)
+}
+
+fn load_with(d: &mut Drawing, name: &str, host: Option<&str>, confined: bool) -> Vec<Outcome> {
     let host_file = host.map(Path::new).filter(|p| p.file_name().is_some());
-    let mut cx = Ctx { chain: host_file.map(canonical).into_iter().collect(), objects: 0, files: 0, notes: Vec::new() };
     let dir = folder(host);
+    let root = confined.then(|| dir.as_deref().filter(|_| host_file.is_some()).map(|d| Confine::Under(canonical(d))).unwrap_or(Confine::Nowhere));
+    let mut cx = Ctx { root, chain: host_file.map(canonical).into_iter().collect(), objects: 0, files: 0, notes: Vec::new() };
     let (status, detail) = load_in(d, name, dir.as_deref(), &mut cx, 0);
     let key = d.block(name).map(|b| b.name.clone()).unwrap_or_else(|| name.to_string());
     let mut out = vec![Outcome { name: key, status, detail }];
@@ -243,6 +272,9 @@ fn fetch(path: &str, dir: Option<&Path>, cx: &mut Ctx, depth: usize) -> Result<(
         let why = if cfg!(target_arch = "wasm32") { "files are not available on the web" } else { "file not found" };
         return Err((XrefStatus::NotFound, format!("{path}: {why}")));
     };
+    if cx.root.as_ref().is_some_and(|r| !r.allows(&file)) {
+        return Err(unresolved(&format!("{path}: outside the drawing's folder; XREF Reload loads it")));
+    }
     let canon = canonical(&file);
     if cx.chain.contains(&canon) {
         return Err(unresolved("circular reference"));

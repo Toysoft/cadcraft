@@ -2373,3 +2373,72 @@ fn foreign_table_reads_cell_text_height_and_keeps_style_scale() {
     assert_eq!(t2.cells[0][0].text_height, Some(150.0));
     assert_eq!(t2.cells[0][1].text_height, None);
 }
+
+/// A hatch boundary spline edge claiming a huge degree (group 94): basis evaluation is quadratic
+/// in the degree, so before the clamp this import ran for hours. Now it finishes at once.
+#[test]
+fn hostile_hatch_spline_edge_degree_is_bounded() {
+    let n = 3000;
+    let mut t =
+        String::from("0\nSECTION\n2\nENTITIES\n0\nHATCH\n8\n0\n2\nSOLID\n70\n1\n91\n1\n92\n1\n93\n1\n72\n4\n94\n100000\n73\n0\n74\n0\n95\n0\n");
+    t.push_str(&format!("96\n{n}\n"));
+    for i in 0..n {
+        t.push_str(&format!("10\n{}\n20\n{}\n", i, (i % 7) * 3));
+    }
+    t.push_str("97\n0\n0\nENDSEC\n0\nEOF\n");
+    let start = std::time::Instant::now();
+    let d = read(t.as_bytes(), "x.dxf").unwrap();
+    assert!(start.elapsed() < std::time::Duration::from_secs(30), "took {:?}", start.elapsed());
+    assert_eq!(kinds(&d), ["Hatch"]);
+    let verts: usize = d
+        .model
+        .iter()
+        .filter_map(|e| match &e.kind {
+            EntityKind::Hatch(h) => Some(h.loops.iter().map(|l| l.vertices.len()).sum::<usize>()),
+            _ => None,
+        })
+        .sum();
+    assert!(verts > 0 && verts <= 5000, "{verts} boundary vertices");
+}
+
+/// Each of a hundred thousand entities on its own new layer: the layer list used to be scanned
+/// once per entity (quadratic, minutes for a few megabytes); the import now stays linear.
+#[test]
+fn many_distinct_layers_import_in_linear_time() {
+    let n = 100_000;
+    let mut t = String::from("0\nSECTION\n2\nENTITIES\n");
+    for i in 0..n {
+        t.push_str(&format!("0\nLINE\n8\nL{i}\n10\n0\n20\n0\n11\n1\n21\n1\n"));
+    }
+    t.push_str("0\nENDSEC\n0\nEOF\n");
+    let start = std::time::Instant::now();
+    let d = read(t.as_bytes(), "x.dxf").unwrap();
+    assert!(start.elapsed() < std::time::Duration::from_secs(60), "took {:?}", start.elapsed());
+    assert_eq!(d.model.len(), n);
+    assert!(d.layers.len() >= n, "{} layers", d.layers.len());
+    assert!(d.layer("l99999").is_some() && d.layer("L0").is_some(), "names are matched regardless of case");
+    // The same layer named twice (in either case) is still one layer.
+    let d = read(b"0\nSECTION\n2\nENTITIES\n0\nLINE\n8\nWalls\n0\nLINE\n8\nWALLS\n0\nENDSEC\n0\nEOF\n", "x.dxf").unwrap();
+    assert_eq!(d.layers.iter().filter(|l| l.name.eq_ignore_ascii_case("walls")).count(), 1);
+}
+
+/// Huge-radius arcs under a non-uniform transform are flattened to chords. With an absolute
+/// tolerance every such arc hit the chord cap (10 000 vertices from 25 bytes of path data), so
+/// a small file could fill memory; the tolerance now scales with the radius and the file as a
+/// whole has a vertex budget.
+#[test]
+fn svg_arc_flattening_is_bounded() {
+    let arcs: String = (1..=9).map(|i| format!("A1e9 1e9 0 1 1 {i} {i} ")).collect();
+    let svg = format!("{SVG_PAGE}<g transform=\"scale(1,2)\"><path d=\"M0 0 {arcs}\"/></g></svg>");
+    let d = read(svg.as_bytes(), "a.svg").unwrap();
+    let verts: usize = d
+        .model
+        .iter()
+        .map(|e| match &e.kind {
+            EntityKind::LwPolyline(p) => p.vertices.len(),
+            _ => 1,
+        })
+        .sum();
+    assert!(verts > 9, "the arcs are there: {verts}");
+    assert!(verts < 9 * 600, "{verts} vertices from 9 arcs");
+}

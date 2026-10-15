@@ -5,12 +5,37 @@ Start the desktop app with `--control PORT` (or `CADCRAFT_CONTROL_PORT=PORT`). I
 `--control` wins over the variable; a bare `--control` keeps the variable's port.
 
 ```json
-{"id": 1, "method": "cmdline.input", "params": {"text": "circle 0,0 5"}}
+{"id": 1, "token": "4f1c…", "method": "cmdline.input", "params": {"text": "circle 0,0 5"}}
 {"id": 1, "ok": true, "result": {"prompt": "Command:", "output": ["Command: CIRCLE"], ...}}
 ```
 
 Errors come back as `{"id": …, "ok": false, "error": "message"}`. An unknown method's error points
 to `control.methods`, which lists the methods the server answers.
+
+## Token
+
+Every request carries `token`. The port is on the loopback interface, but every program on the
+machine can reach that, and so can a web page: a browser sends `fetch` bodies to `127.0.0.1`
+without asking. The methods open, save and write files as the user, so a request has to show it
+comes from someone who may act as the user.
+
+- The token is a random value the app makes at start and writes to `control.token` in its
+  settings directory, readable by the user only: `$XDG_CONFIG_HOME/cadcraft` or
+  `~/.config/cadcraft` on Linux and the BSDs, `~/Library/Application Support/CADCraft` on macOS,
+  `%APPDATA%\CADCraft` on Windows, or `CADCRAFT_CONFIG_DIR`.
+- `CADCRAFT_CONTROL_TOKEN=…` sets the token instead (the app still writes it to the file), for
+  the app and a client started with the same variable.
+- A request without the right token is refused (`{"id": …, "ok": false, "error": "missing or
+  wrong `token`…"}`) and the connection is closed. So is a connection whose line is not JSON;
+  an HTTP request's first line never is, so what a browser sends never reaches a method.
+
+```sh
+TOKEN=$(cat ~/.config/cadcraft/control.token)
+printf '{"id":1,"token":"%s","method":"ping"}\n' "$TOKEN" | nc 127.0.0.1 7979
+```
+
+`cadcraft-cli mcp --connect` reads the file (or the variable) itself; `--token-file FILE` and
+`--token TOKEN` name another.
 
 The server waits up to 60 s for the app to answer a request. After that it replies with a timeout, and
 `state` tells whether sending the request again is safe:
@@ -59,10 +84,10 @@ For example, inspect the drawing and list commands directly, then open a drawing
 DXF bytes through `engine.execute` (one request per line):
 
 ```json
-{"id":2,"method":"drawing.inspect","params":{}}
-{"id":3,"method":"engine.commands","params":{}}
-{"id":4,"method":"engine.execute","params":{"command":"open","params":{"path":"examples/apartment.dxf"}}}
-{"id":5,"method":"engine.execute","params":{"command":"document.bytes","params":{}}}
+{"id":2,"token":"4f1c…","method":"drawing.inspect","params":{}}
+{"id":3,"token":"4f1c…","method":"engine.commands","params":{}}
+{"id":4,"token":"4f1c…","method":"engine.execute","params":{"command":"open","params":{"path":"examples/apartment.dxf"}}}
+{"id":5,"token":"4f1c…","method":"engine.execute","params":{"command":"document.bytes","params":{}}}
 ```
 
 The `open` example assumes the app was started from the repository root; otherwise use a path
@@ -70,7 +95,7 @@ to an existing drawing accessible to the app. `document.bytes` defaults to DXF a
 base64-encoded bytes in the result's `data` field. The `command` alias can be used identically:
 
 ```json
-{"id":6,"method":"command","params":{"command":"document.bytes","params":{}}}
+{"id":6,"token":"4f1c…","method":"command","params":{"command":"document.bytes","params":{}}}
 ```
 
 Sending `open` or `document.bytes` as the top-level `method` returns an `unknown method` error:

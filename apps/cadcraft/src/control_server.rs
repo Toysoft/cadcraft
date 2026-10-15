@@ -3,6 +3,12 @@
 //!
 //! Lines are bounded ([`MAX_LINE`]): a longer one is refused and the connection closed, without
 //! buffering the rest. So is the number of connections served at once ([`MAX_CONNECTIONS`]).
+//!
+//! Every request carries the control token (`cadcraft_engine::control_token`): a request without
+//! the right one is refused and the connection closed, and so is a line that isn't JSON. Both
+//! keep a web page from driving the app: a browser will send a `fetch` body to the loopback
+//! port, but as an HTTP request, whose first line is not JSON, and without the token in the
+//! user's settings directory.
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -20,7 +26,7 @@ const MAX_LINE: usize = 256 * 1024 * 1024;
 /// Connections served at once; further ones get an error line and are closed.
 const MAX_CONNECTIONS: usize = 16;
 
-pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
+pub fn start(port: u16, ctx: egui::Context, token: Arc<str>) -> Receiver<ControlRequest> {
     let (tx, rx) = channel::<ControlRequest>();
     let listener = match TcpListener::bind(("127.0.0.1", port)) {
         Ok(l) => l,
@@ -30,7 +36,7 @@ pub fn start(port: u16, ctx: egui::Context) -> Receiver<ControlRequest> {
         }
     };
     log::info!("control server listening on 127.0.0.1:{port}");
-    std::thread::spawn(move || accept_loop(listener, tx, ctx));
+    std::thread::spawn(move || accept_loop(listener, tx, ctx, token));
     rx
 }
 
@@ -44,7 +50,7 @@ impl Drop for Slot {
     }
 }
 
-fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context) {
+fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Context, token: Arc<str>) {
     let open = Arc::new(AtomicUsize::new(0));
     for mut stream in listener.incoming().flatten() {
         if open.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
@@ -55,9 +61,10 @@ fn accept_loop(listener: TcpListener, tx: Sender<ControlRequest>, ctx: egui::Con
         let slot = Slot(Arc::clone(&open));
         let tx = tx.clone();
         let ctx = ctx.clone();
+        let token = Arc::clone(&token);
         let _ = std::thread::Builder::new().spawn(move || {
             let _slot = slot;
-            serve(stream, tx, ctx);
+            serve(stream, tx, ctx, &token);
         });
     }
 }
@@ -86,7 +93,10 @@ fn read_bounded_line(reader: &mut impl BufRead, buf: &mut Vec<u8>, max: usize) -
     Ok(true)
 }
 
-fn serve(stream: TcpStream, tx: Sender<ControlRequest>, ctx: egui::Context) {
+/// What a request's `token` field must say: the first field checked, before anything is run.
+const TOKEN_ERROR: &str = "missing or wrong `token`: send the contents of <settings>/control.token with every request (docs/control-protocol.md)";
+
+fn serve(stream: TcpStream, tx: Sender<ControlRequest>, ctx: egui::Context, token: &str) {
     let Ok(read) = stream.try_clone() else { return };
     let mut out = stream;
     let mut reader = BufReader::new(read);
@@ -108,6 +118,11 @@ fn serve(stream: TcpStream, tx: Sender<ControlRequest>, ctx: egui::Context) {
         let reply = match serde_json::from_str::<Value>(line) {
             Ok(msg) => {
                 let id = msg.get("id").cloned().unwrap_or(Value::Null);
+                let presented = msg.get("token").and_then(Value::as_str).unwrap_or("");
+                if !cadcraft_engine::control_token::matches(token, presented) {
+                    let _ = writeln!(out, "{}", json!({"id": id, "ok": false, "error": TOKEN_ERROR}));
+                    break;
+                }
                 let method = msg.get("method").and_then(Value::as_str).unwrap_or("").to_string();
                 let params = msg.get("params").cloned().unwrap_or(json!({}));
                 let (req, pending) = ControlRequest::new(method, params);
@@ -123,7 +138,12 @@ fn serve(stream: TcpStream, tx: Sender<ControlRequest>, ctx: egui::Context) {
                 }
                 r
             }
-            Err(e) => json!({"ok": false, "error": format!("bad JSON: {e}")}),
+            // Not JSON: say so and hang up. Reading on would let an HTTP request's body in behind
+            // its header lines.
+            Err(e) => {
+                let _ = writeln!(out, "{}", json!({"ok": false, "error": format!("bad JSON: {e}; closing the connection")}));
+                break;
+            }
         };
         if writeln!(out, "{reply}").is_err() {
             break;
@@ -158,12 +178,14 @@ mod tests {
         assert_eq!(input.len(), 100 - 11, "the rest of the line is left unread");
     }
 
+    const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+
     /// The control server on a loopback port, with a stand-in UI that echoes each method.
     fn serve_echo() -> std::net::SocketAddr {
         let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
         let addr = listener.local_addr().unwrap();
         let (tx, rx) = channel::<ControlRequest>();
-        std::thread::spawn(move || accept_loop(listener, tx, egui::Context::default()));
+        std::thread::spawn(move || accept_loop(listener, tx, egui::Context::default(), Arc::from(TOKEN)));
         std::thread::spawn(move || {
             for req in rx {
                 let _ = req.reply.send(json!({"ok": true, "method": req.method}));
@@ -177,7 +199,11 @@ mod tests {
         let addr = serve_echo();
         let mut c = TcpStream::connect(addr).unwrap();
         c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        c.write_all(b"{\"id\":3,\"method\":\"ping\"}\r\n\n{\"id\":4,\"method\":\"pong\"}\n").unwrap();
+        c.write_all(
+            format!("{{\"id\":3,\"token\":\"{TOKEN}\",\"method\":\"ping\"}}\r\n\n{{\"id\":4,\"token\":\"{TOKEN}\",\"method\":\"pong\"}}\n")
+                .as_bytes(),
+        )
+        .unwrap();
         let mut r = BufReader::new(c);
         for (id, method) in [(3, "ping"), (4, "pong")] {
             let mut line = String::new();
@@ -185,6 +211,50 @@ mod tests {
             let v: Value = serde_json::from_str(&line).unwrap();
             assert_eq!((v["id"].as_i64(), v["method"].as_str()), (Some(id), Some(method)), "{line}");
         }
+    }
+
+    /// One request on a fresh connection; the reply line, then whether the server hung up.
+    fn exchange(addr: std::net::SocketAddr, request: &str) -> (Value, bool) {
+        let mut c = TcpStream::connect(addr).unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        c.write_all(request.as_bytes()).unwrap();
+        let mut r = BufReader::new(c);
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        let reply: Value = serde_json::from_str(&line).unwrap_or_else(|_| panic!("not JSON: {line:?}"));
+        let mut rest = String::new();
+        let closed = r.read_line(&mut rest).map(|n| n == 0).unwrap_or(false);
+        (reply, closed)
+    }
+
+    #[test]
+    fn requests_without_the_token_are_refused_and_the_connection_closed() {
+        let addr = serve_echo();
+        for bad in [
+            "{\"id\":1,\"method\":\"ping\"}\n",
+            "{\"id\":1,\"token\":\"\",\"method\":\"ping\"}\n",
+            "{\"id\":1,\"token\":\"0123456789abcdef0123456789abcde\",\"method\":\"ping\"}\n",
+            "{\"id\":1,\"token\":7,\"method\":\"ping\"}\n",
+        ] {
+            let (reply, closed) = exchange(addr, &format!("{bad}{{\"id\":2,\"token\":\"{TOKEN}\",\"method\":\"ping\"}}\n"));
+            assert_eq!(reply["ok"], json!(false), "{bad:?}: {reply}");
+            assert_eq!(reply["id"], json!(1), "{bad:?}: the refusal names the request");
+            assert!(reply["error"].as_str().unwrap().contains("token"), "{bad:?}: {reply}");
+            assert!(closed, "{bad:?}: the good request behind it must not be read");
+        }
+    }
+
+    #[test]
+    fn a_line_that_is_not_json_closes_the_connection() {
+        // What a browser's `fetch("http://127.0.0.1:PORT", {method: "POST", body})` sends: the
+        // request line and headers, a blank line, then the body. Nothing of it may run.
+        let addr = serve_echo();
+        let body = format!("{{\"id\":9,\"token\":\"{TOKEN}\",\"method\":\"ping\"}}");
+        let http = format!("POST / HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{body}\n", body.len());
+        let (reply, closed) = exchange(addr, &http);
+        assert_eq!(reply["ok"], json!(false));
+        assert!(reply["error"].as_str().unwrap().starts_with("bad JSON"), "{reply}");
+        assert!(closed, "the connection ends at the first line that is not JSON");
     }
 
     #[test]

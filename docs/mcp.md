@@ -26,6 +26,11 @@ that control port at a call that finds nothing, and waits for it:
 exits with an error instead of falling back to a headless session, so a client meant for the app
 never edits a separate drawing by mistake. If the app can't be reached, startup fails too.
 
+The app only answers requests that carry its control token (see `docs/control-protocol.md`). The
+bridge reads it from where the app writes it, `control.token` in the settings directory, or from
+`CADCRAFT_CONTROL_TOKEN` when that is set for both; `--token-file FILE` or `--token TOKEN` names
+another. A bridge on one machine therefore drives only an app run by the same user.
+
 Example client configuration (Claude Code / Claude Desktop):
 
 ```json

@@ -339,9 +339,29 @@ mod native {
         if let Some(dir) = Path::new(path).parent() {
             std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         }
-        let tmp = format!("{path}.tmp");
-        std::fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
-        std::fs::rename(&tmp, path).map_err(|e| e.to_string())
+        // SAVEFILEPATH may be a shared folder: the temporary file is created fresh (never a name
+        // someone else planted, such as a symlink), is private on Unix, and moves into place whole.
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(0);
+        let tmp = format!("{path}.{}-{nanos:08x}.tmp", std::process::id());
+        let mut open = std::fs::OpenOptions::new();
+        open.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open.mode(0o600);
+        }
+        let written = open.open(&tmp).and_then(|mut f| {
+            use std::io::Write;
+            f.write_all(&bytes).and_then(|()| f.sync_all())
+        });
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(e.to_string());
+        }
+        std::fs::rename(&tmp, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            e.to_string()
+        })
     }
 
     impl Autosaver {

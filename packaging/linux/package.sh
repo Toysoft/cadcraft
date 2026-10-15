@@ -109,11 +109,21 @@ if has appimage; then
   cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
   ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 
+  APPIMAGETOOL_VERSION=1.9.1
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"
   if [ -z "$TOOL" ]; then
     TOOL="$CARGO_TARGET_DIR/appimagetool-$ARCH.AppImage"
     if [ ! -x "$TOOL" ]; then
-      curl -fsSL -o "$TOOL" "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$ARCH.AppImage"
+      # A fixed release with a known checksum, not the rolling `continuous` build: this program
+      # produces the shipped artifact, so a substituted download would be a substituted release.
+      case "$ARCH" in
+        x86_64) TOOL_SHA256="ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0" ;;
+        aarch64) TOOL_SHA256="f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158" ;;
+        *) echo "no pinned appimagetool for $ARCH; set APPIMAGETOOL" >&2; exit 1 ;;
+      esac
+      curl -fsSL -o "$TOOL.download" "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-$ARCH.AppImage"
+      echo "$TOOL_SHA256  $TOOL.download" | sha256sum -c - >/dev/null
+      mv -f "$TOOL.download" "$TOOL"
       chmod +x "$TOOL"
     fi
   fi

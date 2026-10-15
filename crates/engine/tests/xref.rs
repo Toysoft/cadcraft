@@ -435,3 +435,37 @@ fn hostile_xref_input_never_panics() {
     let _ = s.execute("xopen", &json!({ "name": "nothing" }));
     let _ = s.execute("xopen", &json!({}));
 }
+
+#[test]
+fn opening_a_drawing_loads_only_the_xrefs_in_its_own_folder() {
+    hooks();
+    let dir = folder("confine-host");
+    let elsewhere = folder("confine-elsewhere");
+    save(&site(), &elsewhere.join("far.dxf"));
+    save(&site(), &dir.join("near.dxf"));
+    std::fs::create_dir_all(dir.join("sub")).unwrap();
+    save(&site(), &dir.join("sub/below.dxf"));
+    let far_abs = elsewhere.join("far.dxf").to_string_lossy().into_owned();
+    let far_rel = format!("../{}/far.dxf", elsewhere.file_name().unwrap().to_string_lossy());
+    let host = dir.join("host.dxf");
+    let mut d = host_with(&[("near.dxf", false), ("sub/below.dxf", false), (&far_abs, false)]);
+    let mut b = Block::new("sneaky");
+    b.xref_path = Some(far_rel);
+    d.blocks.insert("sneaky".into(), Arc::new(b));
+    save(&d, &host);
+
+    // OPEN reads the drawing's neighbours, not files the drawing points at elsewhere on the disk.
+    let mut s = Session::new();
+    open(&mut s, &host);
+    assert_eq!(status(&s, "near"), Some(XrefStatus::Loaded));
+    assert_eq!(status(&s, "below"), Some(XrefStatus::Loaded));
+    assert_eq!((status(&s, "far"), objects(&s, "far")), (Some(XrefStatus::Unresolved), 0));
+    assert_eq!((status(&s, "sneaky"), objects(&s, "sneaky")), (Some(XrefStatus::Unresolved), 0));
+    assert!(s.log.iter().any(|m| m.contains("far") && m.contains("outside the drawing's folder")), "{:?}", s.log);
+
+    // The user's own Reload loads from anywhere.
+    s.script("-XREF\nR\n*\n").unwrap();
+    assert_eq!(status(&s, "far"), Some(XrefStatus::Loaded));
+    assert_eq!(status(&s, "sneaky"), Some(XrefStatus::Loaded));
+    assert!(objects(&s, "far") > 0);
+}

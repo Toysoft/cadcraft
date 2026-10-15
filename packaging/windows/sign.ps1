@@ -73,8 +73,14 @@ try {
     Write-Output "Signing with Azure Trusted Signing ($env:AZURE_SIGNING_ACCOUNT / $env:AZURE_CERT_PROFILE): $($Files -join ', ')"
     # The dlib authenticates with DefaultAzureCredential, which reads AZURE_TENANT_ID,
     # AZURE_CLIENT_ID and AZURE_CLIENT_SECRET from the environment.
+    # A fixed version with a known checksum: the package's DLL runs inside signtool with the
+    # Azure credentials in its environment, so a substituted download could take them.
+    $pkgVersion = '1.0.95'
+    $pkgSha256 = '3BFCF1E0A3CB42AF1692F0A8ED45C15DE070C2DE86F28A59B2795D904D8A920F'
     $pkg = Join-Path $tmp 'trusted-signing.zip'
-    Invoke-WebRequest -Uri 'https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client' -OutFile $pkg
+    Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client/$pkgVersion" -OutFile $pkg
+    $actual = (Get-FileHash -Path $pkg -Algorithm SHA256).Hash
+    if ($actual -ne $pkgSha256) { throw "Microsoft.Trusted.Signing.Client $pkgVersion: checksum $actual, expected $pkgSha256" }
     Expand-Archive -Path $pkg -DestinationPath (Join-Path $tmp 'client') -Force
     $dlib = Get-ChildItem -Path (Join-Path $tmp 'client') -Recurse -Filter Azure.CodeSigning.Dlib.dll |
       Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1

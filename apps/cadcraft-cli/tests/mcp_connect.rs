@@ -63,13 +63,14 @@ fn connect_with_address_routes_to_that_endpoint() {
         let mut line = String::new();
         reader.read_line(&mut line).expect("read request");
         let req: Value = serde_json::from_str(&line).expect("json request");
+        assert_eq!(req["token"], "fixture-token", "every request carries the control token: {line}");
         let reply = json!({"id": req["id"], "ok": true, "result": {"fixture": "loopback"}});
         let mut w = conn;
         writeln!(w, "{reply}").expect("write reply");
         req
     });
     let call = r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ui_inspect","arguments":{}}}"#;
-    let out = mcp(&["--connect", &addr], &format!("{INIT}\n{call}\n"));
+    let out = mcp(&["--connect", &addr, "--token", "fixture-token"], &format!("{INIT}\n{call}\n"));
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     let req = server.join().expect("server thread");
     assert_eq!(req["method"], "ui.inspect");
@@ -86,7 +87,7 @@ fn connect_to_closed_port_fails() {
         let l = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         l.local_addr().expect("local addr").to_string()
     };
-    let out = mcp(&["--connect", &addr], &format!("{INIT}\n"));
+    let out = mcp(&["--connect", &addr, "--token", "t"], &format!("{INIT}\n"));
     assert!(!out.status.success());
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("cannot connect to"));
