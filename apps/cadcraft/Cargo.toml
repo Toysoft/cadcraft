@@ -10,10 +10,18 @@ default-run = "cadcraft"
 [lints]
 workspace = true
 
+[features]
+# The CraftHub v3 client path (spec §18.4 row 10): default off, flipped only after the
+# simulation suite runs green in CI for a full week.
+crafthub = ["dep:cadcraft-hub"]
+
 [dependencies]
 cadcraft-engine = { workspace = true }
 cadcraft-ui-egui = { workspace = true }
 cadcraft-io = { workspace = true }
+# The CraftHub v3 client path (default off): links the adapter; the session wiring lands
+# behind this flag in the follow-up. Nothing changes until it is switched on.
+cadcraft-hub = { workspace = true, optional = true }
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11", "links", "persistence"] }
 egui = { workspace = true }
 serde_json = { workspace = true }

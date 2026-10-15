@@ -42,6 +42,9 @@ pub const TABLE: &[(&str, Class)] = &[
     ("fonts", Class::Layer(2)),
     ("render", Class::Layer(2)),
     ("io", Class::Layer(3)),
+    // The CraftHub client path (spec §18.4 row 10): above the doc (L1) it adapts and the
+    // constraint solver (L2) its tolerance tests measure; no dependency on io.
+    ("hub", Class::Layer(3)),
     ("engine", Class::Layer(4)),
     ("ui-egui", Class::Layer(5)),
     ("mcp", Class::Layer(5)),
