@@ -427,7 +427,7 @@ fn sheet(d: &Drawing, space: &Space, o: &PdfOptions, links_to: &[(Handle, String
         let (from, to) = placement(space, &b, fit, &sheet, o);
         Map { from, s, to, k }
     } else {
-        Map { from: Vec2::ZERO, s, to: Vec2::ZERO, k }
+        Map { from: Sheet::for_layout(&page, unit_mm).origin, s, to: Vec2::ZERO, k }
     };
     // Plot style ends, joins and fill patterns at the plot scale (a layout's are already drawn).
     let mut list = list;
@@ -600,7 +600,7 @@ fn content_stream(
     map: &Map,
     clip_pt: &Bounds2,
     layers: &[u32],
-    texts: &std::collections::HashMap<u32, (usize, &cadcraft_render::PlotText)>,
+    texts: &std::collections::HashMap<u32, (usize, &cadcraft_render::PlotText, bool)>,
 ) -> (String, Vec<u8>) {
     let marked: std::collections::HashSet<u32> = layers.iter().copied().collect();
     let white = Rgb(255, 255, 255);
@@ -716,8 +716,8 @@ fn content_stream(
                     color(&mut c, rgb, "rg");
                     fill = Some(rgb);
                 }
-                if let Some((font, t)) = text {
-                    glyph(&mut c, &mut text_font, *font, t, map);
+                if let Some((font, t, alias)) = text {
+                    glyph(&mut c, &mut text_font, *font, t, map, *alias);
                     continue;
                 }
                 let mut any = false;
@@ -779,7 +779,7 @@ fn ext_gstates(alphas: &[u8]) -> String {
 
 /// Write one glyph as text: opens a text object and sets the font when needed, then places the
 /// glyph with a text matrix (font size 1: the matrix axes are one em).
-fn glyph(c: &mut String, text_font: &mut Option<Option<usize>>, font: usize, t: &cadcraft_render::PlotText, map: &Map) {
+fn glyph(c: &mut String, text_font: &mut Option<Option<usize>>, font: usize, t: &cadcraft_render::PlotText, map: &Map, alias: bool) {
     if text_font.is_none() {
         c.push_str("BT\n");
         *text_font = Some(None);
@@ -790,12 +790,18 @@ fn glyph(c: &mut String, text_font: &mut Option<Option<usize>>, font: usize, t: 
     }
     let s = map.s * map.k;
     let g = &t.glyph;
+    if alias {
+        let _ = writeln!(c, "/Span << /ActualText {} >> BDC", pdf_string(&g.ch.to_string()));
+    }
     for v in [g.x.x * s, g.x.y * s, g.y.x * s, g.y.y * s] {
         num(c, v);
         c.push(' ');
     }
     pt(c, map.pt(g.origin));
     let _ = writeln!(c, " Tm <{:04X}> Tj", g.gid);
+    if alias {
+        c.push_str("EMC\n");
+    }
 }
 
 /// A PDF text string: a literal with `(`, `)` and `\` escaped when it is printable ASCII,
@@ -902,7 +908,7 @@ fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptio
         let texts = fonts.texts(&p.list);
         let (marks, alphas) = content_stream(&p.list, &p.map, &p.clip_pt, &p.layers, &texts);
         let content = objs.add(stream(marks.as_bytes(), o.compress, ""));
-        let mut used: Vec<usize> = texts.values().map(|(f, _)| *f).collect();
+        let mut used: Vec<usize> = texts.values().map(|(f, _, _)| *f).collect();
         used.sort_unstable();
         used.dedup();
         let mut props = String::new();

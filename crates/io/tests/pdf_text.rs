@@ -48,6 +48,10 @@ fn simple_glyph(pts: &[(i16, i16)]) -> Vec<u8> {
 
 /// A TrueType font with glyphs .notdef (empty), A and B, and OS/2 `fsType`.
 fn test_font(fs_type: u16) -> Vec<u8> {
+    test_font_with_alias(fs_type, false)
+}
+
+fn test_font_with_alias(fs_type: u16, alias: bool) -> Vec<u8> {
     let glyphs = [Vec::new(), simple_glyph(&[(50, 0), (550, 0), (300, 700)]), simple_glyph(&[(50, 0), (550, 0), (550, 700), (50, 700)])];
     let mut glyf = Vec::new();
     let mut loca = Vec::new();
@@ -88,25 +92,29 @@ fn test_font(fs_type: u16) -> Vec<u8> {
     }
     // cmap: format 4, 'A'..'B' → 1..2.
     let mut sub = Vec::new();
-    let segs: [(u16, u16, u16); 2] = [(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)];
+    let segs = if alias {
+        vec![(0x41, 0x41, 1u16.wrapping_sub(0x41)), (0x42, 0x42, 1u16.wrapping_sub(0x42)), (0xFFFF, 0xFFFF, 1)]
+    } else {
+        vec![(0x41, 0x42, 1u16.wrapping_sub(0x41)), (0xFFFF, 0xFFFF, 1)]
+    };
     be16(&mut sub, 4);
     be16(&mut sub, (16 + segs.len() * 8) as u16);
     be16(&mut sub, 0);
     be16(&mut sub, (segs.len() * 2) as u16);
-    for v in [4u16, 1, 0] {
+    for v in [4u16, 1, (segs.len() * 2 - 4) as u16] {
         be16(&mut sub, v);
     }
-    for s in segs {
+    for s in &segs {
         be16(&mut sub, s.1);
     }
     be16(&mut sub, 0);
-    for s in segs {
+    for s in &segs {
         be16(&mut sub, s.0);
     }
-    for s in segs {
+    for s in &segs {
         be16(&mut sub, s.2);
     }
-    for _ in segs {
+    for _ in &segs {
         be16(&mut sub, 0);
     }
     let mut cmap = Vec::new();
@@ -148,6 +156,7 @@ fn fonts() {
     ONCE.call_once(|| {
         cadcraft_fonts::ttf::register("cadcraft-pdf-test.ttf", test_font(0));
         cadcraft_fonts::ttf::register("cadcraft-pdf-restricted.ttf", test_font(0x0002));
+        cadcraft_fonts::ttf::register("cadcraft-pdf-alias.ttf", test_font_with_alias(0, true));
     });
 }
 
@@ -224,6 +233,34 @@ fn font_file(pdf: &str, bytes_of: &[u8]) -> Vec<u8> {
     let len: usize = pdf[len_at..].split(|c: char| !c.is_ascii_digit()).next().unwrap().parse().unwrap();
     let start = pdf[i..].find("stream\n").unwrap() + i + 7;
     bytes_of[start..start + len].to_vec()
+}
+
+#[test]
+fn font_paths_use_the_same_installed_face_and_preserve_the_drawing_style() {
+    for path in [r"C:\Windows\Fonts\CADCRAFT-PDF-TEST.TTF", "/old machine/fonts/cadcraft-pdf-test.ttf", r"..\Fonts\cadcraft-pdf-test.ttf"] {
+        let mut d = drawing();
+        style(&mut d, "Portable", path);
+        text(&mut d, &Space::Model, "Portable", (10.0, 20.0), "AB", 0.3, 0.8, 0.2);
+        assert_eq!(cadcraft_fonts::ttf::find(path), cadcraft_fonts::ttf::find("cadcraft-pdf-test.ttf"));
+        let p = pdf(&d, &Space::Model, json!({}));
+        assert!(p.contains("/FontFile2"));
+        assert_eq!(matrices(&p).len(), 2);
+        let back = cadcraft_io::read_dxf(cadcraft_io::write_dxf(&d).as_bytes()).unwrap();
+        assert_eq!(back.text_styles.iter().find(|s| s.name == "Portable").unwrap().font, path);
+        assert_eq!(pdf(&back, &Space::Model, json!({})), p);
+    }
+}
+
+#[test]
+fn shared_glyphs_keep_each_occurrences_original_unicode_text() {
+    let mut d = drawing();
+    style(&mut d, "Alias", "cadcraft-pdf-alias.ttf");
+    text(&mut d, &Space::Model, "Alias", (10.0, 20.0), "ABBA", 0.0, 1.0, 0.0);
+    let p = pdf(&d, &Space::Model, json!({}));
+    assert_eq!(p.lines().filter(|l| l.ends_with(" Tm <0001> Tj")).count(), 4, "same glyph rendered four times");
+    assert_eq!(p.matches("/Span << /ActualText (B) >> BDC\n").count(), 2, "aliases preserve B when copied");
+    assert!(p.contains("<0001> <0041>"), "canonical glyph is A");
+    assert_eq!(matrices(&p).len(), 4);
 }
 
 #[test]

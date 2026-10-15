@@ -314,6 +314,7 @@ fn insert(st: &mut State, s: &str) {
 fn ruler(ui: &mut egui::Ui, st: &mut State, px: f32, width: f32, base_h: f64) {
     let t = Tokens::get();
     let range = st.sel.0.min(st.sel.1)..st.sel.0.max(st.sel.1);
+    st.fmt.paragraph_lengths_to_drawing_units(range.clone(), base_h);
     let p = st.fmt.para(st.fmt.paragraph_of(range.start));
     let (rect, bg) = ui.allocate_exact_size(vec2(width, 20.0), Sense::click());
     let painter = ui.painter_at(rect);

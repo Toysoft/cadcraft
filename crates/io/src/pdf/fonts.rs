@@ -98,9 +98,17 @@ impl Fonts {
         self.by_face.get(&key(&t.glyph.face)).copied().flatten()
     }
 
-    /// The plotted glyphs of `list` written as text: outline primitive → (font, glyph).
-    pub(super) fn texts<'a>(&self, list: &'a DisplayList) -> HashMap<u32, (usize, &'a PlotText)> {
-        usable(list).filter_map(|t| Some((t.prim, (self.font_of(t)?, t)))).collect()
+    /// The plotted glyphs of `list` written as text: outline primitive → (font, glyph, Unicode alias).
+    pub(super) fn texts<'a>(&self, list: &'a DisplayList) -> HashMap<u32, (usize, &'a PlotText, bool)> {
+        usable(list)
+            .filter_map(|t| {
+                let font = self.font_of(t)?;
+                // Several Unicode characters can share one glyph. ToUnicode names one of them;
+                // other occurrences need ActualText so copying preserves the drawing's text.
+                let alias = self.fonts.get(font)?.chars.get(&t.glyph.gid).is_some_and(|c| *c != t.glyph.ch);
+                Some((t.prim, (font, t, alias)))
+            })
+            .collect()
     }
 
     /// Write the font objects; returns each font's `Type0` object, by font index.

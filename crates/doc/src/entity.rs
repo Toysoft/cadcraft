@@ -973,6 +973,8 @@ pub struct Unknown {
     pub tags: Vec<RawTag>,
 }
 
+/// Large annotation payloads live out of line so every line and circle does not pay
+/// for their size. Boxing is transparent to the serialized drawing format.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum EntityKind {
@@ -989,12 +991,12 @@ pub enum EntityKind {
     XLine(RayLine),
     Text(Text),
     MText(MText),
-    AttDef(Attrib),
+    AttDef(Box<Attrib>),
     Insert(Insert),
-    Dimension(Dimension),
+    Dimension(Box<Dimension>),
     MLine(MLine),
     Leader(Leader),
-    MLeader(MLeader),
+    MLeader(Box<MLeader>),
     Hatch(Hatch),
     Solid(Solid),
     Trace(Solid),
@@ -1003,7 +1005,7 @@ pub enum EntityKind {
     Viewport(Viewport),
     Image(Image),
     Wipeout(Wipeout),
-    Table(Table),
+    Table(Box<Table>),
     Tolerance(crate::Tolerance),
     Unknown(Unknown),
 }
@@ -1406,11 +1408,14 @@ impl EntityKind {
                 vec![c, c + mj, c + mn, c - mj, c - mn]
             }
             EntityKind::LwPolyline(p) => {
-                let mut g: Vec<Vec2> = Vec::new();
                 let pl = Polyline { vertices: p.vertices.clone(), closed: p.closed };
+                // Segment generation walks every vertex. Do it once, rather than once for
+                // each grip: dense contour lines otherwise take quadratic time per frame.
+                let segments = pl.segments();
+                let mut g = Vec::with_capacity(p.vertices.len().saturating_add(segments.len()));
                 for (i, v) in p.vertices.iter().enumerate() {
                     g.push(v.p);
-                    if let Some(s) = pl.segments().get(i) {
+                    if let Some(s) = segments.get(i) {
                         g.push(s.mid());
                     }
                 }

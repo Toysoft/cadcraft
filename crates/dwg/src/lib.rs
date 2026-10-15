@@ -85,6 +85,7 @@ mod native {
         }
         let notes = read_notes(&outcome.stats);
         let mut doc = outcome.document;
+        viewport_ids(&mut doc);
         table_merges(&mut doc);
         table_style_rows(&mut doc, false);
         let mut out = CappedWriter { buf: Vec::new(), limit: limits.max_dxf_bytes, exceeded: false };
@@ -204,6 +205,30 @@ mod native {
             82 => "LAYOUT",
             _ => return None,
         })
+    }
+
+    /// DWG has no viewport ids; they follow the order in each paper-space block, starting
+    /// with the overall sheet view (1). acadrust 0.6.3 assigns them only in the active layout,
+    /// leaving the others at 0. Restore those ids before the DXF writer exports them.
+    fn viewport_ids(doc: &mut acadrust::CadDocument) {
+        use acadrust::tables::TableEntry;
+        let blocks: Vec<_> = doc
+            .block_records
+            .iter()
+            .filter(|b| b.name().to_ascii_uppercase().starts_with("*PAPER_SPACE"))
+            .map(|b| b.entity_handles.clone())
+            .collect();
+        for handles in blocks {
+            let mut id = 0i16;
+            for handle in handles {
+                if let Some(acadrust::entities::EntityType::Viewport(v)) = doc.get_entity_mut(handle) {
+                    id = id.saturating_add(1);
+                    if v.id == 0 {
+                        v.id = id;
+                    }
+                }
+            }
+        }
     }
 
     /// Merged table cells onto the cells. acadrust 0.6.3 reads a 2010+ (AC1024+) DWG table's
@@ -367,12 +392,17 @@ mod native {
     /// Convert DXF bytes into a DWG file of the DXF's version, and at least AutoCAD 2004
     /// (AC1018).
     pub fn dxf_to_dwg(dxf: &[u8]) -> Result<Vec<u8>, String> {
-        convert(dxf, None)
+        convert(dxf.to_vec(), None)
     }
 
     /// Convert DXF bytes into a DWG file of `version`, a code from [`super::VERSIONS`] ("AC1032"),
     /// whatever version the DXF declares.
     pub fn dxf_to_dwg_as(dxf: &[u8], version: &str) -> Result<Vec<u8>, String> {
+        dxf_to_dwg_owned_as(dxf.to_vec(), version)
+    }
+
+    /// Like [`dxf_to_dwg_as`], consuming the intermediate DXF instead of copying it.
+    pub fn dxf_to_dwg_owned_as(dxf: Vec<u8>, version: &str) -> Result<Vec<u8>, String> {
         let v = match version.trim().to_ascii_uppercase().as_str() {
             "AC1015" => acadrust::DxfVersion::AC1015,
             "AC1018" => acadrust::DxfVersion::AC1018,
@@ -385,9 +415,8 @@ mod native {
         convert(dxf, Some(v))
     }
 
-    fn convert(dxf: &[u8], version: Option<acadrust::DxfVersion>) -> Result<Vec<u8>, String> {
-        let data = dxf.to_vec();
-        let mut doc = std::panic::catch_unwind(move || acadrust::DxfReader::from_reader(Cursor::new(data)).and_then(|r| r.read()))
+    fn convert(dxf: Vec<u8>, version: Option<acadrust::DxfVersion>) -> Result<Vec<u8>, String> {
+        let mut doc = std::panic::catch_unwind(move || acadrust::DxfReader::from_reader(Cursor::new(dxf)).and_then(|r| r.read()))
             .map_err(|_| "the DXF→DWG conversion failed".to_string())?
             .map_err(|e| format!("DXF: {e}"))?;
         match version {
@@ -407,7 +436,7 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{dwg_to_dxf, dwg_to_dxf_noted, dwg_to_dxf_with, dxf_to_dwg, dxf_to_dwg_as};
+pub use native::{dwg_to_dxf, dwg_to_dxf_noted, dwg_to_dxf_with, dxf_to_dwg, dxf_to_dwg_as, dxf_to_dwg_owned_as};
 
 /// The error for a DWG version CADCraft can't write.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
@@ -435,6 +464,10 @@ pub fn dxf_to_dwg(_dxf: &[u8]) -> Result<Vec<u8>, String> {
 #[cfg(target_arch = "wasm32")]
 pub fn dxf_to_dwg_as(_dxf: &[u8], _version: &str) -> Result<Vec<u8>, String> {
     Err("DWG files can't be written in the web build yet; save as DXF".into())
+}
+#[cfg(target_arch = "wasm32")]
+pub fn dxf_to_dwg_owned_as(dxf: Vec<u8>, version: &str) -> Result<Vec<u8>, String> {
+    dxf_to_dwg_as(&dxf, version)
 }
 
 #[cfg(test)]
