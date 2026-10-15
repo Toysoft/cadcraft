@@ -1243,3 +1243,51 @@
 	Search for pattern	Buscar patrón
 	Not a number or distance: {text}	No es un número ni una distancia: {text}
 	Query Texts	Consultar textos
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Un modelo local no es un modelo puntero en la nube: puede equivocarse, y una respuesta larga tarda lo suyo en la CPU. Compruebe todo lo crítico y valore el tamaño del modelo frente a esta máquina antes de descargarlo.
+	Ask	Preguntar
+	Ask anything	Pregunte lo que quiera
+	Ask in any language	Pregunte en cualquier idioma
+	Assistant	Asistente
+	Best for: a step up in quality, still light	Ideal para: un escalón más de calidad, sin dejar de ser ligero
+	Best for: balanced everyday and technical work	Ideal para: equilibrar lo cotidiano y lo técnico
+	Best for: everyday help on the lightest machines	Ideal para: ayuda cotidiana en las máquinas más ligeras
+	Best for: near-flagship answers at MoE speed	Ideal para: respuestas casi de gama alta a la velocidad de MoE
+	Best for: the deepest reasoning this family has	Ideal para: el razonamiento más profundo de esta familia
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	Craft AI ejecuta un modelo local de Gemma en esta máquina. Nada de lo que escriba aquí sale de ella: sin cuenta, sin servicio en la nube, sin telemetría — la paleta habla con un entorno de modelos en 127.0.0.1.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI funciona en la aplicación nativa — necesita un entorno local de modelos.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI habla con un entorno de modelos en esta máquina — Ollama, LM Studio o el servidor de llama.cpp — y nunca con un servicio en la nube. Inicie uno y actualice.
+	DXF and DWG questions	Preguntas sobre DXF y DWG
+	Delete file	Eliminar archivo
+	Dimensioning advice	Consejo de acotación
+	Disk {size}	Disco {size}
+	Download with Ollama	Descargar con Ollama
+	Downloading… {pct}% — {note}	Descargando… {pct} % — {note}
+	Explain a command or entity	Explicar un comando o una entidad
+	Fits this machine	Encaja en esta máquina
+	How do I…	¿Cómo puedo…?
+	Layer organisation	Organización de capas
+	Limits	Límites
+	Local and private	Local y privado
+	Looking for a local model runtime…	Buscando un entorno local de modelos…
+	Needs {disk} GB of disk	Necesita {disk} GB de disco
+	Needs {ram} GB of RAM	Necesita {ram} GB de RAM
+	No local model runtime found.	No se encontró un entorno local de modelos.
+	No model installed yet — see the Models tab.	Aún no hay ningún modelo instalado — vea la pestaña Modelos.
+	Ollama is no longer running — Refresh finds it again.	Ollama ya no se está ejecutando; Actualizar lo encuentra de nuevo.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Una sola descarga sirve para todas las aplicaciones de ArtCraft: el modelo queda en una carpeta compartida que todas leen.
+	RAM {gb} GB	RAM {gb} GB
+	Refresh	Actualizar
+	Runtime	Entorno
+	Save model file	Guardar el archivo del modelo
+	Saved in the shared folder	Guardado en la carpeta compartida
+	Saving… {pct}%	Guardando… {pct} %
+	Task	Tarea
+	The command, entity or palette to explain	El comando, entidad o paleta que explicar
+	The file, its version, or what round-trips	El archivo, su versión o qué va y vuelve
+	The layers there are, and what the drawing shows	Las capas que hay y lo que muestra el dibujo
+	The shared folder:	La carpeta compartida:
+	Thinking… {s}s	Pensando… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Esta máquina: {ram} GB de RAM, {disk} GB libres
+	What is being dimensioned, and the drawing's scale	Qué se acota y a qué escala está el dibujo
+	What you want to achieve	Qué quieres conseguir

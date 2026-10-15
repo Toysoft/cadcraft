@@ -1245,3 +1245,51 @@ menu	View	Visa
 menu	Draw	Rita
 menu	Dimension	Måttsättning
 menu	Modify	Ändra
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	En lokal modell är inte en toppmodell i molnet: den kan ha fel, och ett långt svar tar sin tid på processorn. Dubbelkolla allt kritiskt, och jämför modellens storlek med den här datorn innan du hämtar den.
+	Ask	Fråga
+	Ask anything	Fråga vad som helst
+	Ask in any language	Fråga på vilket språk som helst
+	Assistant	Assistent
+	Best for: a step up in quality, still light	Bäst för: ett steg upp i kvalitet, fortfarande lätt
+	Best for: balanced everyday and technical work	Bäst för: balanserat vardags- och tekniskt arbete
+	Best for: everyday help on the lightest machines	Bäst för: vardagshjälp på de lättaste maskinerna
+	Best for: near-flagship answers at MoE speed	Bäst för: svar nära toppnivå i MoE-fart
+	Best for: the deepest reasoning this family has	Bäst för: det djupaste resonemang familjen har
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	Craft AI kör en lokal Gemma-modell på den här datorn. Inget du skriver här lämnar den: inget konto, ingen molntjänst, ingen telemetri — paletten talar med en körningsmiljö för modeller på 127.0.0.1.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI körs i den nativa appen — den behöver en lokal körningsmiljö för modeller.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI talar med en körningsmiljö för modeller på den här datorn — Ollama, LM Studio eller llama.cpp:s server — och aldrig med en molntjänst. Starta en och tryck sedan på Uppdatera.
+	DXF and DWG questions	Frågor om DXF och DWG
+	Delete file	Radera fil
+	Dimensioning advice	Råd om måttsättning
+	Disk {size}	Disk {size}
+	Download with Ollama	Hämta med Ollama
+	Downloading… {pct}% — {note}	Hämtar… {pct}% — {note}
+	Explain a command or entity	Förklara ett kommando eller ett objekt
+	Fits this machine	Passar den här datorn
+	How do I…	Hur gör jag…
+	Layer organisation	Lagerorganisering
+	Limits	Gränser
+	Local and private	Lokalt och privat
+	Looking for a local model runtime…	Söker efter en lokal körningsmiljö för modeller…
+	Needs {disk} GB of disk	Behöver {disk} GB disk
+	Needs {ram} GB of RAM	Behöver {ram} GB RAM
+	No local model runtime found.	Ingen lokal körningsmiljö för modeller hittades.
+	No model installed yet — see the Models tab.	Ingen modell installerad ännu — se fliken Modeller.
+	Ollama is no longer running — Refresh finds it again.	Ollama körs inte längre — Uppdatera hittar den igen.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	En hämtning räcker till alla ArtCraft-appar: modellen hamnar i en delad mapp som alla läser.
+	RAM {gb} GB	RAM {gb} GB
+	Refresh	Uppdatera
+	Runtime	Miljö
+	Save model file	Spara modellfil
+	Saved in the shared folder	Sparad i den delade mappen
+	Saving… {pct}%	Sparar… {pct}%
+	Task	Uppgift
+	The command, entity or palette to explain	Kommandot, objektet eller paletten som ska förklaras
+	The file, its version, or what round-trips	Filen, dess version eller vad som går fram och tillbaka
+	The layers there are, and what the drawing shows	Vilka lager som finns och vad ritningen visar
+	The shared folder:	Den delade mappen:
+	Thinking… {s}s	Tänker… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Den här datorn: {ram} GB RAM, {disk} GB ledigt
+	What is being dimensioned, and the drawing's scale	Vad som måttsätts och ritningens skala
+	What you want to achieve	Vad du vill uppnå

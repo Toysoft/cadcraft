@@ -18,6 +18,7 @@ pub mod closing;
 pub mod cmdline;
 pub mod context_menu;
 pub mod control;
+pub mod craft_ai;
 pub mod credits;
 pub mod dialogs;
 pub mod docking;

@@ -1238,3 +1238,51 @@ menu	View	보기
 menu	Draw	그리기
 menu	Dimension	치수
 menu	Modify	수정
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	로컬 모델은 최첨단 클라우드 모델이 아닙니다. 틀릴 수 있고 긴 답변은 CPU에서 시간이 걸립니다. 중요한 내용은 반드시 확인하고, 내려받기 전에 모델 크기를 이 컴퓨터와 비교하세요.
+	Ask	묻기
+	Ask anything	무엇이든 물어보기
+	Ask in any language	어느 언어로든 물어볼 수 있습니다
+	Assistant	어시스턴트
+	Best for: a step up in quality, still light	이런 용도에 최적: 한 단계 나은 품질, 여전히 가벼움
+	Best for: balanced everyday and technical work	이런 용도에 최적: 일상과 기술 작업의 균형
+	Best for: everyday help on the lightest machines	이런 용도에 최적: 가장 가벼운 컴퓨터에서의 일상적인 도움
+	Best for: near-flagship answers at MoE speed	이런 용도에 최적: MoE 속도로 기함급에 가까운 답변
+	Best for: the deepest reasoning this family has	이런 용도에 최적: 이 패밀리에서 가장 깊은 추론
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	Craft AI는 이 컴퓨터에서 로컬 Gemma 모델을 실행합니다. 여기에 쓴 내용은 밖으로 나가지 않습니다. 계정도, 클라우드 서비스도, 텔레메트리도 없으며 팔레트는 127.0.0.1의 모델 런타임과만 통신합니다.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI는 네이티브 앱에서 실행됩니다 — 로컬 모델 런타임이 필요합니다.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI는 이 컴퓨터의 모델 런타임(Ollama, LM Studio, llama.cpp 서버)과만 통신하며 클라우드 서비스와는 절대 통신하지 않습니다. 하나를 실행한 뒤 새로 고침하세요.
+	DXF and DWG questions	DXF 및 DWG 질문
+	Delete file	파일 삭제
+	Dimensioning advice	치수 기입 조언
+	Disk {size}	디스크 {size}
+	Download with Ollama	Ollama로 내려받기
+	Downloading… {pct}% — {note}	내려받는 중… {pct}% — {note}
+	Explain a command or entity	명령이나 개체 설명
+	Fits this machine	이 컴퓨터에 적합합니다
+	How do I…	어떻게 하나요…
+	Layer organisation	레이어 구성
+	Limits	한계
+	Local and private	로컬이며 비공개
+	Looking for a local model runtime…	로컬 모델 런타임을 찾는 중…
+	Needs {disk} GB of disk	디스크 {disk} GB가 필요합니다
+	Needs {ram} GB of RAM	RAM {ram} GB가 필요합니다
+	No local model runtime found.	로컬 모델 런타임이 없습니다.
+	No model installed yet — see the Models tab.	설치된 모델이 아직 없습니다 — 모델 탭을 참고하세요.
+	Ollama is no longer running — Refresh finds it again.	Ollama가 더 이상 실행되지 않습니다 — 새로 고침으로 다시 찾을 수 있습니다.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	한 번 내려받으면 모든 ArtCraft 앱에서 씁니다. 모델은 모든 앱이 읽는 공유 폴더에 저장됩니다.
+	RAM {gb} GB	RAM {gb} GB
+	Refresh	새로 고침
+	Runtime	런타임
+	Save model file	모델 파일 저장
+	Saved in the shared folder	공유 폴더에 저장됨
+	Saving… {pct}%	저장하는 중… {pct}%
+	Task	작업
+	The command, entity or palette to explain	설명할 명령, 개체 또는 팔레트
+	The file, its version, or what round-trips	파일, 버전 또는 상호 변환되는 내용
+	The layers there are, and what the drawing shows	어떤 레이어가 있고 도면이 무엇을 보여주는지
+	The shared folder:	공유 폴더:
+	Thinking… {s}s	생각 중… {s}초
+	This machine: {ram} GB RAM, {disk} GB free	이 컴퓨터: RAM {ram} GB, 여유 {disk} GB
+	What is being dimensioned, and the drawing's scale	치수 기입할 대상과 도면의 축척
+	What you want to achieve	달성하고 싶은 것

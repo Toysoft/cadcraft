@@ -1034,3 +1034,51 @@
 	Justify	Blocksatz
 	Text color	Textfarbe
 	Click the ruler to add a tab stop, right-click to remove one	Klick auf das Lineal setzt einen Tabstopp, Rechtsklick entfernt ihn
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Ein lokales Modell ist kein Spitzengroßmodell aus der Cloud: Es kann sich irren, und lange Antworten brauchen auf der CPU ihre Zeit. Prüfen Sie alles Entscheidende und bedenken Sie die Modellgröße gegen diesen Rechner vor dem Download.
+	Ask	Fragen
+	Ask anything	Fragen Sie alles
+	Ask in any language	Fragen Sie in jeder Sprache
+	Assistant	Assistent
+	Best for: a step up in quality, still light	Am besten für: eine Stufe mehr Qualität, weiterhin leicht
+	Best for: balanced everyday and technical work	Am besten für: die Balance aus Alltäglichem und Technischem
+	Best for: everyday help on the lightest machines	Am besten für: alltägliche Hilfe auf den leichtesten Rechnern
+	Best for: near-flagship answers at MoE speed	Am besten für: Antworten nahe der Spitzenklasse, mit MoE-Tempo
+	Best for: the deepest reasoning this family has	Am besten für: das tiefste Abwägen, das diese Familie hat
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	Craft AI führt ein lokales Gemma-Modell auf diesem Rechner aus. Nichts, was Sie hier schreiben, verlässt ihn: kein Konto, kein Cloud-Dienst, keine Telemetrie — die Palette spricht mit einer Modell-Laufzeit auf 127.0.0.1.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI läuft in der nativen App — es braucht eine lokale Modell-Laufzeit.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI spricht mit einer Modell-Laufzeit auf diesem Rechner — Ollama, LM Studio oder llama.cpps Server — und nie mit einem Cloud-Dienst. Starten Sie eine und klicken Sie auf „Neu laden“.
+	DXF and DWG questions	Fragen zu DXF und DWG
+	Delete file	Datei löschen
+	Dimensioning advice	Rat zur Bemaßung
+	Disk {size}	Speicher {size}
+	Download with Ollama	Mit Ollama laden
+	Downloading… {pct}% — {note}	Wird geladen… {pct} % — {note}
+	Explain a command or entity	Einen Befehl oder ein Objekt erklären
+	Fits this machine	Passt auf diesen Rechner
+	How do I…	Wie kann ich…
+	Layer organisation	Ebenen-Organisation
+	Limits	Grenzen
+	Local and private	Lokal und privat
+	Looking for a local model runtime…	Suche nach einer lokalen Modell-Laufzeit…
+	Needs {disk} GB of disk	Braucht {disk} GB Speicher
+	Needs {ram} GB of RAM	Braucht {ram} GB RAM
+	No local model runtime found.	Keine lokale Modell-Laufzeit gefunden.
+	No model installed yet — see the Models tab.	Noch kein Modell installiert — siehe Reiter „Modelle“.
+	Ollama is no longer running — Refresh finds it again.	Ollama läuft nicht mehr — „Aktualisieren“ findet es wieder.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Ein Download reicht für alle ArtCraft-Apps: Das Modell landet in einem gemeinsamen Ordner, den alle lesen.
+	RAM {gb} GB	RAM {gb} GB
+	Refresh	Aktualisieren
+	Runtime	Laufzeit
+	Save model file	Modelldatei speichern
+	Saved in the shared folder	Im gemeinsamen Ordner gespeichert
+	Saving… {pct}%	Wird gespeichert… {pct} %
+	Task	Aufgabe
+	The command, entity or palette to explain	Der Befehl, das Objekt oder die Palette, die erklärt werden soll
+	The file, its version, or what round-trips	Die Datei, ihre Version oder was hin- und hergeht
+	The layers there are, and what the drawing shows	Welche Ebenen es gibt und was die Zeichnung zeigt
+	The shared folder:	Der gemeinsame Ordner:
+	Thinking… {s}s	Denkt nach… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Dieser Rechner: {ram} GB RAM, {disk} GB frei
+	What is being dimensioned, and the drawing's scale	Was bemaßt wird und in welchem Maßstab die Zeichnung ist
+	What you want to achieve	Was Sie erreichen wollen

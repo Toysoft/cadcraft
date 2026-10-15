@@ -1007,3 +1007,51 @@
 	Search for pattern	Rechercher un motif
 	Not a number or distance: {text}	Ni un nombre ni une distance : {text}
 	Query Texts	Interroger les textes
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Un modèle local n'est pas un modèle de pointe du cloud : il peut se tromper, et une longue réponse prend son temps sur le processeur. Vérifiez tout ce qui est critique, et pesez la taille du modèle face à cette machine avant de le télécharger.
+	Ask	Demander
+	Ask anything	Posez n'importe quelle question
+	Ask in any language	Posez votre question dans n'importe quelle langue
+	Assistant	Assistant
+	Best for: a step up in quality, still light	Idéal pour : un cran de plus en qualité, toujours léger
+	Best for: balanced everyday and technical work	Idéal pour : l'équilibre du quotidien et du technique
+	Best for: everyday help on the lightest machines	Idéal pour : l'aide quotidienne sur les machines les plus légères
+	Best for: near-flagship answers at MoE speed	Idéal pour : des réponses presque de pointe à la vitesse MoE
+	Best for: the deepest reasoning this family has	Idéal pour : le raisonnement le plus profond de cette famille
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	Craft AI exécute un modèle Gemma local sur cette machine. Rien de ce que vous écrivez ici n'en sort : pas de compte, pas de service cloud, pas de télémétrie — la palette parle à un moteur de modèles sur 127.0.0.1.
+	Craft AI runs in the native app — it needs a local model runtime.	Craft AI fonctionne dans l'application native — il lui faut un moteur de modèles local.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	Craft AI parle à un moteur de modèles sur cette machine — Ollama, LM Studio ou le serveur de llama.cpp — et jamais à un service cloud. Lancez-en un, puis Actualisez.
+	DXF and DWG questions	Questions sur DXF et DWG
+	Delete file	Supprimer le fichier
+	Dimensioning advice	Conseil de cotation
+	Disk {size}	Disque {size}
+	Download with Ollama	Télécharger avec Ollama
+	Downloading… {pct}% — {note}	Téléchargement… {pct} % — {note}
+	Explain a command or entity	Expliquer une commande ou une entité
+	Fits this machine	Convient à cette machine
+	How do I…	Comment puis-je…
+	Layer organisation	Organisation des calques
+	Limits	Limites
+	Local and private	Local et privé
+	Looking for a local model runtime…	Recherche d'un moteur de modèles local…
+	Needs {disk} GB of disk	Exige {disk} Go de disque
+	Needs {ram} GB of RAM	Exige {ram} Go de RAM
+	No local model runtime found.	Aucun moteur de modèles local trouvé.
+	No model installed yet — see the Models tab.	Aucun modèle installé pour l'instant — voir l'onglet Modèles.
+	Ollama is no longer running — Refresh finds it again.	Ollama ne tourne plus — Actualiser le retrouve.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Un seul téléchargement sert toutes les applications ArtCraft : le modèle arrive dans un dossier partagé qu'elles lisent toutes.
+	RAM {gb} GB	RAM {gb} Go
+	Refresh	Actualiser
+	Runtime	Moteur
+	Save model file	Enregistrer le fichier du modèle
+	Saved in the shared folder	Enregistré dans le dossier partagé
+	Saving… {pct}%	Enregistrement… {pct} %
+	Task	Tâche
+	The command, entity or palette to explain	La commande, l'entité ou la palette à expliquer
+	The file, its version, or what round-trips	Le fichier, sa version ou ce qui fait l'aller-retour
+	The layers there are, and what the drawing shows	Les calques présents et ce que le dessin montre
+	The shared folder:	Le dossier partagé :
+	Thinking… {s}s	Réflexion… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Cette machine : {ram} Go de RAM, {disk} Go libres
+	What is being dimensioned, and the drawing's scale	Ce qui est coté et l'échelle du dessin
+	What you want to achieve	Ce que vous voulez accomplir

@@ -1244,3 +1244,51 @@
 	Query Texts	Consultar textos
 	Run Script...	Executar script...
 	Not a number or distance: {text}	Não é um número nem uma distância: {text}
+# Craft AI: the built-in local assistant palette, its models and tasks.
+	A local model is not a frontier cloud model: it can be wrong, and a long answer takes its time on CPU. Check anything critical, and mind a model's size against this machine before downloading it.	Um modelo local não é um modelo de nuvem de ponta: ele pode errar, e uma resposta longa demora na CPU. Confira tudo o que for crítico e observe o tamanho do modelo diante desta máquina antes de baixar.
+	Ask	Perguntar
+	Ask anything	Pergunte qualquer coisa
+	Ask in any language	Pergunte em qualquer idioma
+	Assistant	Assistente
+	Best for: a step up in quality, still light	Melhor para: um degrau a mais de qualidade, ainda leve
+	Best for: balanced everyday and technical work	Melhor para: equilibrar o cotidiano e o técnico
+	Best for: everyday help on the lightest machines	Melhor para: ajuda do dia a dia nas máquinas mais leves
+	Best for: near-flagship answers at MoE speed	Melhor para: respostas quase topo de linha na velocidade do MoE
+	Best for: the deepest reasoning this family has	Melhor para: o raciocínio mais profundo que esta família tem
+	Craft AI runs a local Gemma model on this machine. Nothing you write here leaves it: no account, no cloud service, no telemetry — the palette talks to a model runtime on 127.0.0.1.	O Craft AI roda um modelo Gemma local nesta máquina. Nada do que você escrever aqui sai dela: sem conta, sem serviço de nuvem, sem telemetria — a paleta conversa com um runtime de modelos em 127.0.0.1.
+	Craft AI runs in the native app — it needs a local model runtime.	O Craft AI roda no aplicativo nativo — ele precisa de um runtime de modelos local.
+	Craft AI talks to a model runtime on this machine — Ollama, LM Studio or llama.cpp's server — and never to a cloud service. Start one, then Refresh.	O Craft AI conversa com um runtime de modelos nesta máquina — Ollama, LM Studio ou o servidor do llama.cpp — e nunca com um serviço de nuvem. Inicie um deles e clique em Atualizar.
+	DXF and DWG questions	Perguntas sobre DXF e DWG
+	Delete file	Excluir arquivo
+	Dimensioning advice	Conselho de cotagem
+	Disk {size}	Disco {size}
+	Download with Ollama	Baixar com o Ollama
+	Downloading… {pct}% — {note}	Baixando… {pct}% — {note}
+	Explain a command or entity	Explicar um comando ou entidade
+	Fits this machine	Cabe nesta máquina
+	How do I…	Como eu…
+	Layer organisation	Organização de camadas
+	Limits	Limites
+	Local and private	Local e privado
+	Looking for a local model runtime…	Procurando um runtime de modelos local…
+	Needs {disk} GB of disk	Precisa de {disk} GB de disco
+	Needs {ram} GB of RAM	Precisa de {ram} GB de RAM
+	No local model runtime found.	Nenhum runtime de modelos local encontrado.
+	No model installed yet — see the Models tab.	Nenhum modelo instalado ainda — veja a aba Modelos.
+	Ollama is no longer running — Refresh finds it again.	O Ollama não está mais em execução — Atualizar o encontra de novo.
+	One download serves every ArtCraft app: the model lands in a shared folder all of them read.	Um único download serve todos os aplicativos ArtCraft: o modelo vai para uma pasta compartilhada que todos leem.
+	RAM {gb} GB	RAM {gb} GB
+	Refresh	Atualizar
+	Runtime	Runtime
+	Save model file	Salvar o arquivo do modelo
+	Saved in the shared folder	Salvo na pasta compartilhada
+	Saving… {pct}%	Salvando… {pct}%
+	Task	Tarefa
+	The command, entity or palette to explain	O comando, entidade ou paleta a explicar
+	The file, its version, or what round-trips	O arquivo, sua versão ou o que vai e volta
+	The layers there are, and what the drawing shows	As camadas existentes e o que o desenho mostra
+	The shared folder:	A pasta compartilhada:
+	Thinking… {s}s	Pensando… {s} s
+	This machine: {ram} GB RAM, {disk} GB free	Esta máquina: {ram} GB de RAM, {disk} GB livres
+	What is being dimensioned, and the drawing's scale	O que é cotado e a escala do desenho
+	What you want to achieve	O que você quer alcançar

@@ -240,17 +240,31 @@ fn catalog(language: &str) -> Option<&'static Catalog<'static>> {
 }
 
 pub fn tr<'a>(language: &str, source: &'a str) -> &'a str {
-    catalog(language).and_then(|c| c.get(&("", source))).copied().unwrap_or(source)
+    catalog(language).and_then(|c| c.get(&("", source))).map(|v| visual(language, *v)).unwrap_or(source)
+}
+
+/// A right-to-left language's translations are handed out in visual order (`bidi.rs`) — the
+/// order egui draws its runs in, the letters inside each run in logical order for the shaper
+/// — so the labels read right to left; `text` is a catalog's `&'static str`, reordered once
+/// and kept for the life of the process.
+fn visual(language: &str, text: &'static str) -> &'static str {
+    if language == "ar" { bidi::visual_cached(text) } else { text }
 }
 
 pub fn t(source: &str) -> &str {
     CURRENT.with(|l| tr(l.get(), source))
 }
 
+/// Does the current interface language read right to left? (Model answers and other text no
+/// catalog holds are drawn through the visual-order pass when it does — see `bidi`.)
+pub fn is_rtl() -> bool {
+    CURRENT.with(|l| l.get()) == "ar"
+}
+
 /// Menu headings can differ from command or object labels (e.g. Czech Kótování / Kóta).
 /// Catalogs without a `menu` entry retain their ordinary translation.
 pub fn tr_menu<'a>(language: &str, source: &'a str) -> &'a str {
-    catalog(language).and_then(|c| c.get(&("menu", source))).copied().unwrap_or_else(|| tr(language, source))
+    catalog(language).and_then(|c| c.get(&("menu", source))).map(|v| visual(language, *v)).unwrap_or_else(|| tr(language, source))
 }
 
 pub fn menu(source: &str) -> &str {
@@ -351,5 +365,10 @@ macro_rules! tf {
     };
 }
 
+// The Craft AI palette draws model answers (text no catalog holds) in visual order for a
+// right-to-left interface, the same pass the catalog rows get at lookup above. (The attribute
+// below belongs to `tests` alone: `bidi` itself is of the shipped app — the pass would not
+// compile otherwise, a slip of the stacked pass this branch fixes.)
+pub(crate) mod bidi;
 #[cfg(test)]
 mod tests;

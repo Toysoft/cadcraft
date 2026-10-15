@@ -16,6 +16,8 @@ pub enum Panel {
     Properties,
     #[serde(rename = "externalReferences")]
     ExternalRefs,
+    #[serde(rename = "craftAi")]
+    CraftAi,
 }
 
 impl Panel {
@@ -28,6 +30,7 @@ impl Panel {
             Self::Layers => "layers",
             Self::Properties => "properties",
             Self::ExternalRefs => "externalReferences",
+            Self::CraftAi => "craftAi",
         }
     }
     fn label(self) -> &'static str {
@@ -38,6 +41,7 @@ impl Panel {
             Self::Layers => "Layers",
             Self::Properties => "Properties",
             Self::ExternalRefs => "External References",
+            Self::CraftAi => "Craft AI",
         }
     }
     fn default_side(self) -> Zone {
@@ -48,10 +52,11 @@ impl Panel {
             Self::Layers => Zone::Right,
             Self::Properties => Zone::Right,
             Self::ExternalRefs => Zone::Right,
+            Self::CraftAi => Zone::Right,
         }
     }
-    /// Palettes outside the default arrangement, opened on request (QUICKCALC).
-    pub const ON_DEMAND: &[Self] = &[Self::QuickCalc];
+    /// Palettes outside the default arrangement, opened on request (QUICKCALC, CRAFT AI).
+    pub const ON_DEMAND: &[Self] = &[Self::QuickCalc, Self::CraftAi];
     fn parse(id: &str) -> Result<Self, String> {
         Self::ALL.iter().chain(Self::ON_DEMAND).copied().find(|panel| panel.id() == id).ok_or_else(|| format!("Unknown panel: {id}"))
     }
@@ -364,6 +369,9 @@ pub fn show(app: &mut crate::CadApp, ui: &mut egui::Ui) {
             Panel::ExternalRefs => {
                 egui::ScrollArea::both().id_salt("dock-xrefs").auto_shrink([false, false]).show(ui, |ui| crate::xrefs::section(app, ui));
             }
+            Panel::CraftAi => {
+                egui::ScrollArea::vertical().id_salt("dock-craft-ai").auto_shrink([false, false]).show(ui, |ui| crate::craft_ai::show(app, ui));
+            }
         },
     );
     // Existing panel close buttons and commands still own their visibility switches.
@@ -393,7 +401,7 @@ fn panel_limits(panel: &Panel) -> PanelLimits {
         Panel::Canvas => (egui::vec2(300.0, 180.0), 1_000_000.0),
         Panel::QuickCalc => (egui::vec2(240.0, 160.0), 600.0),
         Panel::ToolSets => (egui::vec2(220.0, 150.0), 480.0),
-        Panel::Layers | Panel::Properties | Panel::ExternalRefs => (egui::vec2(220.0, 100.0), 720.0),
+        Panel::Layers | Panel::Properties | Panel::ExternalRefs | Panel::CraftAi => (egui::vec2(220.0, 100.0), 720.0),
     };
     PanelLimits { min, max: egui::vec2(max_width, 1_000_000.0) }
 }
