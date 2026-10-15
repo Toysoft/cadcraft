@@ -47,4 +47,8 @@ hidapi = { version = "2.6.7", default-features = false, features = ["windows-nat
 windows = { version = "0.62", features = ["UI_ViewManagement"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+# GNOME/Wayland has no server-side frame. Enable winit's Adwaita title bar and
+# vector-drawn window buttons; eframe/wayland alone does not enable decorations.
+winit = { version = "0.30", default-features = false, features = ["wayland-csd-adwaita"] }
+
 hidapi = { version = "2.6.7", default-features = false, features = ["linux-native-basic-udev"] }

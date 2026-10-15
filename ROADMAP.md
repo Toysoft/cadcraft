@@ -2,7 +2,7 @@
 
 **Stage: pre-alpha** · next: alpha, ~2 points (38% → 40% ready for real work) and ~125–190 Opus 5.5 hours away (the four failing core workflows of the [alpha gate](docs/roadmap.md#alpha-gate))
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (hours to ~95% for each readiness number) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-15 · **Change:** minor (hours to ~95% for each readiness number) · **Target:** Autodesk AutoCAD 2027
 
 CADCraft targets full parity with AutoCAD (2D drafting first, then annotation, layouts and
 plotting, DWG, parametrics and 3D), plus what AutoCAD doesn't have: agent control over MCP, a
@@ -115,6 +115,10 @@ Ranked; detail and the full beta checklist in [docs/roadmap.md](docs/roadmap.md)
 8. Xrefs, block editor, groups, then dynamic blocks (80–120 h).
 
 ## Progress log
+
+2026-10-15: Linux desktop builds enable the Adwaita Wayland frame and vector window
+controls. See README → Linux window controls; full GTK theme parity is not claimed.
+
 
 | Date | Entry |
 |---|---|
