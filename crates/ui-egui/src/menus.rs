@@ -159,6 +159,14 @@ fn run_ui_command_inner(app: &mut CadApp, id: &str, params: &Value) -> Option<Re
             }
             Ok(Value::Null)
         }
+        // SCRIPT typed or chosen from the menu: pick the file. JSON calls carry parameters and
+        // remain non-interactive.
+        "script" | "scr" if no_path && app.services.pick_open.is_some() => {
+            if let Some(p) = app.services.pick_open.as_ref().and_then(|f| f()) {
+                return Some(app.run("script", json!({ "path": p })));
+            }
+            Ok(Value::Null)
+        }
         // RECOVER from the menu or typed: pick the file. Without a picker the engine asks for the
         // file name on the command line.
         "recover" if no_path && app.services.pick_open.is_some() => {

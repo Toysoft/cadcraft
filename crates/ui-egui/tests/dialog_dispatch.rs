@@ -51,19 +51,19 @@ fn properties_menu_shows_the_palette() {
 #[test]
 fn json_file_commands_never_open_pickers() {
     let (mut app, picks) = app();
-    for c in ["open", "saveas", "qsave"] {
+    for c in ["open", "saveas", "qsave", "script"] {
         assert!(app.run(c, json!({})).is_err(), "{c} {{}} reports the missing path");
     }
     app.cmdline("open {}");
     assert_eq!(picks.get(), 0);
     // Typed, chosen from the menu or the ui.* shortcut commands: the pickers.
-    for c in ["open", "saveas", "qsave"] {
+    for c in ["open", "saveas", "qsave", "script", "scr"] {
         app.start(c);
     }
-    assert_eq!(picks.get(), 3);
+    assert_eq!(picks.get(), 5);
     app.run("ui.open", json!({})).unwrap();
     app.run("ui.saveas", json!({})).unwrap();
-    assert_eq!(picks.get(), 5);
+    assert_eq!(picks.get(), 7);
 }
 
 #[test]
