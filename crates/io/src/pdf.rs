@@ -733,6 +733,8 @@ fn content_stream(
                     c.push_str("f\n");
                 }
             }
+            // Raster images are not written to PDF yet: their frame is.
+            Kind::Image { .. } => {}
             Kind::Point => {
                 let Some(q) = raw.first() else { continue };
                 flush(&mut c, &mut pending);

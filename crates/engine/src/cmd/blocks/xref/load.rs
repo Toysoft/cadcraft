@@ -124,7 +124,7 @@ struct Ctx {
 }
 
 /// The folder of the host drawing at `host` (a file path).
-fn folder(host: Option<&str>) -> Option<PathBuf> {
+pub(crate) fn folder(host: Option<&str>) -> Option<PathBuf> {
     let p = Path::new(host?).parent()?;
     Some(if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() })
 }

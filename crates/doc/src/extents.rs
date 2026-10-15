@@ -199,6 +199,8 @@ fn bounds_in<'a>(d: &'a Drawing, e: &Entity, depth: usize, blocks: &mut HashMap<
             Bounds2::from_points([o, o + u, o + v, o + u + v])
         }
         EntityKind::LwPolyline(p) => lwpolyline_bounds(p),
+        // An embedded OLE object: the rectangle it is shown in.
+        EntityKind::Unknown(u) if u.is_ole() => u.ole_frame().unwrap_or(Bounds2::EMPTY),
         kind => {
             let mut b = Bounds2::EMPTY;
             for p in kind.prims() {

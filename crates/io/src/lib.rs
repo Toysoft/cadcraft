@@ -12,8 +12,11 @@ mod dxf_read;
 mod dxf_table;
 mod dxf_write;
 mod dxf_xref;
+pub mod ole;
 pub mod pdf;
 pub mod plotter;
+/// Raster image files (PNG, JPEG, BMP, TIFF) decoded to pixels.
+pub mod raster;
 pub mod svg;
 mod svg_read;
 

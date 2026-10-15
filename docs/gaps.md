@@ -1,6 +1,6 @@
 # Where CADCraft falls short of AutoCAD
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (multiline attributes read, drawn and saved: F17 narrowed) · **Target:** Autodesk AutoCAD 2027
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (pictures of embedded OLE objects drawn: FF10) · **Target:** Autodesk AutoCAD 2027
 
 Every known shortfall, one row each, ranked within each section by user impact. This is the work
 list: agents pick from here (top of a section first), and remove or update a row in the same PR
@@ -77,7 +77,7 @@ Detail: [file-format-parity.md](file-format-parity.md).
 | FF7 | Table record and object handles from other programs' files are renumbered on the first save (entity handles are kept; `*D` blocks no longer duplicate and once reopened, CADCraft's own files keep every handle across saves, #495) | Low | 4–6 |
 | FF8 | SHX fonts (shape and big fonts) not read | Medium-high (text metrics differ) | 8–12 |
 | FF9 | `.pc3` plotter configuration files; linetype shape (SHX) elements are skipped (templates and `.dwt`, user `.lin`/`.pat` and `.pgp` alias files landed, #552; `.ctb`/`.stb`, #410) | Low-medium | 5–10 |
-| FF10 | PDF import and underlays (PDFATTACH); raster image attach (IMAGEATTACH). PDF export has real text in embedded TrueType subsets, PDF layers, several sheets per file and hyperlinks (#567, #571) | Medium | 20–35 |
+| FF10 | PDF import and underlays (PDFATTACH). Raster images (#956): IMAGEATTACH from JSON reads PNG, JPEG, BMP and TIFF, the picture is drawn on screen and in PNG exports and plot previews (rotation, clip boundary, fade), and reloaded when the drawing opens; left: PDF and SVG output write only the frame, no prompts, dialog or menu row, no -IMAGE options (detach, reload, unload, path), IMAGECLIP, IMAGEADJUST or IMAGEFRAME, brightness and contrast not applied, images lie under all other objects on screen whatever their draw order, size not taken from the file's resolution, images can't be stored in the drawing. Embedded OLE objects (OLE2FRAME) show their picture when it is a bitmap (a pasted picture, or a metafile that only draws one); left: objects whose picture is a drawing (worksheets, documents: needs a metafile renderer) are crossed-out frames, OLE objects can't be moved, scaled, opened or inserted (INSERTOBJ, OLESCALE, OLEOPEN), and saving as DWG drops them (FF1). PDF export has real text in embedded TrueType subsets, PDF layers, several sheets per file and hyperlinks (#567, #571) | Medium | 24–40 |
 | FF11 | DWF/DWFx, DGN, WMF, EPS, ACIS/STL and other exchange formats | Low-medium | 50–100 |
 | FF12 | DWG in the web build | Medium | 6–10 |
 | FF13 | R12 binary DXF, pre-R13 DWG | Low | 10–20 |
@@ -145,6 +145,8 @@ Detail: [localization-parity.md](localization-parity.md).
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-14 | minor | Embedded OLE objects show their picture when it is a bitmap (#956): FF10 lists the OLE leftovers |
+| 2026-10-13 | minor | Raster images attach, load on open and draw on screen and in PNG output (#956, first step): FF10 narrowed to PDF underlays and the image leftovers |
 | 2026-10-12 | minor | Object transparency (entity, ByLayer, ByBlock) is drawn: on screen (TRANSPARENCYDISPLAY, on by default), in PNG/SVG exports, and in plots when the page setup's "Plot transparency" is on (PDF alpha, PNG blending, SVG opacity; PLOTTRANSPARENCYOVERRIDE): F14 narrowed |
 | 2026-10-12 | minor | Hatch and Gradient dialog (HATCH, GRADIENT; HPDLGMODE) and Hatch Edit dialog (HATCHEDIT, right-click, double-click a hatch): F13 narrowed to Preview, Inherit Properties and boundary add/remove in edit mode |
 | 2026-10-12 | minor | A bare system variable name typed at the command line (ORTHOMODE, GRIDMODE…) runs SETVAR on that variable, as in AutoCAD; U10 narrowed |

@@ -58,6 +58,51 @@ pub enum Kind {
     Point,
     /// An infinite line or ray: `verts[start]` = base, `verts[start+1]` = unit direction.
     Infinite { ray: bool },
+    /// A raster image, [`DisplayList::images`]`[index]`; `verts[start..start+4]` are its corners
+    /// (top left, top right, bottom right, bottom left of the pixel grid).
+    Image { index: u32 },
+}
+
+/// A raster image placed in the world.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DImage {
+    pub raster: std::sync::Arc<cadcraft_doc::Raster>,
+    /// Where the top-left corner of the top-left pixel is.
+    pub origin: Vec2,
+    /// One pixel to the right and one pixel down, in world units.
+    pub right: Vec2,
+    pub down: Vec2,
+    /// Closed outlines the image is cut to (all of them: its own clip boundary, then the
+    /// viewports it is seen through). Empty: the whole image.
+    pub clips: Vec<Vec<Vec2>>,
+    /// Fade towards the background, percent (0..=100).
+    pub fade: u8,
+}
+
+impl DImage {
+    /// The world position of pixel-grid point (`x`, `y`), `y` down from the top.
+    pub fn at(&self, x: f64, y: f64) -> Vec2 {
+        self.origin + self.right * x + self.down * y
+    }
+    /// The pixel-grid point at world position `q` (the inverse of [`DImage::at`]); `None` for an
+    /// image squashed to a line or a point.
+    pub fn pixel_of(&self, q: Vec2) -> Option<Vec2> {
+        let det = self.right.x * self.down.y - self.right.y * self.down.x;
+        if !(det.is_finite() && det.abs() > 0.0) {
+            return None;
+        }
+        let d = q - self.origin;
+        Some(Vec2::new((d.x * self.down.y - d.y * self.down.x) / det, (self.right.x * d.y - self.right.y * d.x) / det))
+    }
+    /// How opaque the image is drawn, 0..=1: the object's opacity `alpha` (0..=255) less the fade.
+    pub fn opacity(&self, alpha: u8) -> f32 {
+        f32::from(alpha) / 255.0 * (1.0 - f32::from(self.fade.min(100)) / 100.0)
+    }
+    /// The corners: top left, top right, bottom right, bottom left.
+    pub fn corners(&self) -> [Vec2; 4] {
+        let (w, h) = (f64::from(self.raster.width()), f64::from(self.raster.height()));
+        [self.at(0.0, 0.0), self.at(w, 0.0), self.at(w, h), self.at(0.0, h)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -82,6 +127,8 @@ pub struct DisplayList {
     pub prims: Vec<DPrim>,
     pub verts: Vec<Vec2>,
     pub tris: Vec<Vec2>,
+    /// The raster images drawn by [`Kind::Image`] primitives.
+    pub images: Vec<DImage>,
     /// Plots ([`build_plot`]): for each primitive, the index in [`Drawing::layers`] of the layer
     /// it is drawn on (block contents on layer 0: the block reference's; [`NO_LAYER`] when the
     /// layer isn't in the table), for PDF layers. Empty for other lists.
@@ -360,6 +407,45 @@ impl Builder<'_> {
             len: pts.len() as u32,
         });
     }
+    /// The pixels of image `i` over its rectangle, cut to its clip boundary.
+    fn image(&mut self, ctx: &Ctx, color: Ink, i: &cadcraft_doc::Image, raster: &std::sync::Arc<cadcraft_doc::Raster>) {
+        // Where the entity puts its picture: the top-left corner, and one of its pixels to the
+        // right and down.
+        let top_left = ctx.xf.apply(i.insert.xy() + i.v.xy() * i.size.y);
+        let right = ctx.xf.apply_vec(i.u.xy());
+        let down = ctx.xf.apply_vec(i.v.xy() * -1.0);
+        let clip = image_clip(i, |q| top_left + right * q.x + down * q.y);
+        // The file found can have another pixel count than the entity records: its pixels are
+        // stretched over the same rectangle.
+        let img = DImage {
+            raster: raster.clone(),
+            origin: top_left,
+            right: right * (i.size.x / f64::from(raster.width())),
+            down: down * (i.size.y / f64::from(raster.height())),
+            clips: clip.into_iter().collect(),
+            fade: i.fade.min(100),
+        };
+        let corners = img.corners();
+        if !corners.iter().all(|q| q.x.is_finite() && q.y.is_finite()) {
+            return;
+        }
+        let (Ok(index), Ok(start)) = (u32::try_from(self.list.images.len()), u32::try_from(self.list.verts.len())) else { return };
+        for q in corners {
+            self.list.bounds.add(q);
+            self.list.verts.push(q);
+        }
+        self.list.images.push(img);
+        self.list.prims.push(DPrim {
+            handle: ctx.top,
+            color: color.rgb,
+            aci7: color.aci7,
+            lw: 0.0,
+            transparency: self.transparency,
+            kind: Kind::Image { index },
+            start,
+            len: 4,
+        });
+    }
     fn tris(&mut self, ctx: &Ctx, color: Ink, tris: &[Vec2]) {
         self.tris_at(ctx, color, tris, ctx.xf);
     }
@@ -472,6 +558,23 @@ impl Builder<'_> {
     }
 }
 
+/// The clip boundary of image `i` as a closed outline, or `None` when the whole image shows.
+/// `place` gives the position of a point of the entity's pixel grid (x right, y down from the
+/// top-left corner of the image).
+fn image_clip(i: &cadcraft_doc::Image, place: impl Fn(Vec2) -> Vec2) -> Option<Vec<Vec2>> {
+    if !i.clipping {
+        return None;
+    }
+    // Boundaries count from pixel centres: the top-left corner of the image is (-0.5, -0.5).
+    let at = |q: Vec2| place(Vec2::new(q.x + 0.5, q.y + 0.5));
+    match i.clip.as_slice() {
+        // Two opposite corners of a rectangle.
+        [a, b] => Some(vec![at(*a), at(Vec2::new(b.x, a.y)), at(*b), at(Vec2::new(a.x, b.y))]),
+        polygon if polygon.len() >= 3 => Some(polygon.iter().map(|q| at(*q)).collect()),
+        _ => None,
+    }
+}
+
 /// Build the display list for a space. For a layout (paper space) this includes the model-space
 /// geometry seen through each viewport, clipped to the viewport, and [`DisplayList::sheet`].
 pub fn build(d: &Drawing, space: &Space, opts: &Options) -> DisplayList {
@@ -576,14 +679,19 @@ fn build_parallel(b: &mut Builder, d: &Drawing, store: &cadcraft_doc::EntityStor
 #[cfg(not(target_arch = "wasm32"))]
 fn append(dst: &mut DisplayList, src: DisplayList) {
     let (verts, tris, prims) = (dst.verts.len() as u32, dst.tris.len() as u32, dst.prims.len() as u32);
+    let images = dst.images.len() as u32;
     // Pens are parallel to the primitives, with missing entries meaning "use object".
     if !src.pens.is_empty() {
         dst.pens.resize(dst.prims.len(), Pen::default());
     }
     dst.prims.extend(src.prims.into_iter().map(|mut p| {
         p.start += if matches!(p.kind, Kind::Tris | Kind::Mask) { tris } else { verts };
+        if let Kind::Image { index } = &mut p.kind {
+            *index = index.saturating_add(images);
+        }
         p
     }));
+    dst.images.extend(src.images);
     dst.verts.extend(src.verts);
     dst.tris.extend(src.tris);
     dst.prim_layers.extend(src.prim_layers);
@@ -840,6 +948,11 @@ fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
                     push_raw(dst, p, Kind::Point, &[*q]);
                 }
             }
+            (Kind::Image { index }, _) => {
+                if let Some(img) = src.images.get(index as usize) {
+                    push_clipped_image(dst, p, img, pts, clip);
+                }
+            }
             (Kind::Infinite { ray }, Clip::Rect(rect)) => {
                 if let (Some(base), Some(dir)) = (pts.first(), pts.get(1))
                     && let Some((a, c)) = clip::clip_infinite(*base, *dir, ray, rect)
@@ -856,6 +969,25 @@ fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
             }
         }
     }
+}
+
+/// Append image `img` (primitive `p`, corners `corners`) to `dst`, to be cut to `clip` when it
+/// is drawn: the picture is not cut here, the outline is added to those it carries.
+fn push_clipped_image(dst: &mut DisplayList, p: &DPrim, img: &DImage, corners: &[Vec2], clip: &Clip) {
+    let outline = match clip {
+        Clip::Rect(rect) => {
+            if !Bounds2::from_points(corners.iter().copied()).intersects(rect) {
+                return;
+            }
+            vec![rect.min, Vec2::new(rect.max.x, rect.min.y), rect.max, Vec2::new(rect.min.x, rect.max.y)]
+        }
+        Clip::Poly(c) => c.polygon().to_vec(),
+    };
+    let Ok(index) = u32::try_from(dst.images.len()) else { return };
+    let mut img = img.clone();
+    img.clips.push(outline);
+    dst.images.push(img);
+    push_raw(dst, p, Kind::Image { index }, corners);
 }
 
 fn push_raw(dst: &mut DisplayList, p: &DPrim, kind: Kind, pts: &[Vec2]) {
@@ -1191,9 +1323,17 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             let o = i.insert.xy();
             let u = i.u.xy() * i.size.x;
             let v = i.v.xy() * i.size.y;
+            // Display flag 1: show the image. Without pixels (file not found, not loaded yet,
+            // hidden) the rectangle is crossed out.
+            let raster = if i.display & 1 != 0 { ctx.d.rasters.get(&i.path) } else { None };
+            if let Some(r) = raster {
+                b.image(ctx, rgb, i, r);
+            }
             b.polyline(ctx, rgb, lw, &[o, o + u, o + u + v, o + v, o]);
-            b.polyline(ctx, rgb, lw, &[o, o + u + v]);
-            b.polyline(ctx, rgb, lw, &[o + u, o + v]);
+            if raster.is_none() {
+                b.polyline(ctx, rgb, lw, &[o, o + u + v]);
+                b.polyline(ctx, rgb, lw, &[o + u, o + v]);
+            }
         }
         EntityKind::Table(t) => table(b, ctx, t, rgb, lw),
         EntityKind::Tolerance(t) => tolerance::draw(b, ctx, e, t, lw, tol),
@@ -1248,6 +1388,38 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             }
             for l in &fig.lines {
                 b.polyline(ctx, rgb, lw, l);
+            }
+        }
+        EntityKind::Unknown(u) if u.is_ole() => {
+            let Some(frame) = u.ole_frame() else { return };
+            let (low, high) = (frame.min, frame.max);
+            let (right, left) = (Vec2::new(high.x, low.y), Vec2::new(low.x, high.y));
+            // The picture read from the object when the drawing opened, over its rectangle.
+            let raster = ctx.d.rasters.get(&cadcraft_doc::ole_raster_key(e.handle));
+            if let Some(r) = raster {
+                let (w, h) = (f64::from(r.width()), f64::from(r.height()));
+                let i = cadcraft_doc::Image {
+                    insert: low.to3(0.0),
+                    u: Vec2::new(frame.width() / w, 0.0).to3(0.0),
+                    v: Vec2::new(0.0, frame.height() / h).to3(0.0),
+                    size: Vec2::new(w, h),
+                    ..Default::default()
+                };
+                b.image(ctx, rgb, &i, r);
+            }
+            // The frame per OLEFRAME: 0 = none, 1 = shown and plotted, 2 = shown but not
+            // plotted. An object without a picture is always a crossed-out frame.
+            let framed = match ctx.d.header.i64("OLEFRAME", 2) {
+                0 => false,
+                1 => true,
+                _ => !b.plotting,
+            };
+            if framed || raster.is_none() {
+                b.polyline(ctx, rgb, lw, &[low, right, high, left, low]);
+            }
+            if raster.is_none() {
+                b.polyline(ctx, rgb, lw, &[low, high]);
+                b.polyline(ctx, rgb, lw, &[right, left]);
             }
         }
         kind => {
