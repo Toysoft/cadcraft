@@ -159,3 +159,6 @@ retained and the result's `shown` is `en`. `ui.set` also accepts
 `{"interfaceLanguage":"uk"}`; `ui.inspect` reports the saved choice in its UI state.
 Invalid choices leave the current language unchanged. Menus, command labels and prompt text
 returned by the control channel retain their English source text. See [localization.md](localization.md).
+
+Traditional Chinese prototype: the same language controls also accept `zh-Hant`. This adds
+only a preference value; command IDs and all automation output remain English.

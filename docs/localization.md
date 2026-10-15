@@ -114,3 +114,35 @@ The implementation follows the display-time catalog pattern used by
 
 Translations are original work under `MIT OR Apache-2.0`, written from the meaning of
 CADCraft's English strings. Do not copy proprietary localization resources.
+
+## Traditional Chinese prototype (zh-Hant)
+
+The additional **繁體中文** choice uses the saved/control code `zh-Hant`. Explicit choice
+wins over the system locale. Auto recognizes `zh-Hant` and unscripted `zh-TW`, `zh-HK`,
+`zh-MO`, including underscore/POSIX forms. The choice uses the existing cadcraft.prefs storage; no separate legacy storage key is added. An explicit `Hans` or another script wins over
+region and does not select Traditional Chinese; bare `zh` and explicit `Hans` select Simplified Chinese (`zh`). BCP 47
+extensions do not change script selection.
+
+The original catalog covers all 1322 entries in the pinned reference catalog, including
+menus, layers and fixed drafting prompts. Future uncovered strings fall back to English. Commands, accepted English
+keywords, CLI/MCP/control labels, drawing text and user names retain their source spelling.
+Traditional Chinese count entries have one form, through the per-language plural rule, independently of Ukrainian and Portuguese rules.
+
+Traditional Chinese uses the same theme::cjk_font, can_show and install_fonts path as
+Simplified Chinese. Installed CJK fonts are shared across native platforms, including
+Microsoft JhengHei on Windows. No font files are bundled. Without an installed CJK font,
+the interface shows English while retaining the saved Chinese preference. Web cannot read
+host font files and therefore shows English. Both Chinese catalogs share the existing
+font installation cache; this contribution has no separate font discovery module.
+
+The prototype adds tests for script/region priority, saved selection, count templates,
+English/Chinese/English rendering, unchanged automation/user data, and installed native
+CJK glyphs. These tests have not run. Native compilation and runtime verification remain
+required before claiming supported behavior. Only rustfmt parsing/format and
+static catalog/placeholder/full-reference-coverage checks have run. DPI, GUI and reboot/persistence
+verification remain required before calling this a supported release.
+Catalog audit: 1309 rows contain original Traditional Chinese display text; 13 intentionally
+retain direction/space/style/system identifiers or a value-only template. Accepted keywords,
+coordinate and text syntax, shortcuts, brands and format names embedded in translated prompts
+remain unchanged. Complete coverage refers to the pinned 1322-entry catalog, not future strings
+or a verified release. Original catalog attribution credits @rg147258.

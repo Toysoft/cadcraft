@@ -343,7 +343,7 @@ pub fn install_fonts(ctx: &egui::Context, language: &str) {
         if !chinese {
             paths.extend(japanese_font());
         }
-        paths.extend(cjk_font());
+        paths.extend(cjk_font_for(language));
         paths.dedup();
         added.extend(
             paths
@@ -622,7 +622,7 @@ pub fn can_show(language: &str) -> bool {
     match language {
         "ko" => shows_hangul("ko"),
         "ar" => arabic_font().is_some(),
-        l if l.starts_with("zh") => cjk_font().is_some(),
+        l if l.starts_with("zh") => cjk_font_for(l).is_some(),
         _ => true,
     }
 }
@@ -686,5 +686,55 @@ mod tests {
         for bytes in [vec![], vec![0xff; 32], vec![0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]] {
             assert!(super::korean_face(std::sync::Arc::new(bytes)).is_none());
         }
+    }
+}
+/// Only the Traditional interface may prefer an installed Traditional face.
+fn prefer_traditional<'a>(
+    language: &str,
+    traditional: Option<&'a std::path::Path>,
+    generic: Option<&'a std::path::Path>,
+) -> Option<&'a std::path::Path> {
+    if language == "zh-Hant" { traditional.or(generic) } else { generic }
+}
+
+pub fn cjk_font_for(language: &str) -> Option<&'static std::path::Path> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let traditional = if language == "zh-Hant" {
+        static FOUND: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+        FOUND
+            .get_or_init(|| {
+                #[cfg(windows)]
+                let candidates = ["C:\\Windows\\Fonts\\msjh.ttc"];
+                #[cfg(not(windows))]
+                let candidates: [&str; 0] = [];
+                candidates.iter().map(std::path::PathBuf::from).find(|path| path.is_file())
+            })
+            .as_deref()
+    } else {
+        None
+    };
+    #[cfg(target_arch = "wasm32")]
+    let traditional = None;
+    prefer_traditional(language, traditional, cjk_font())
+}
+
+#[cfg(test)]
+mod traditional_font_tests {
+    use super::*;
+    #[test]
+    fn tc_priority_does_not_leak_into_other_languages() {
+        let tc = std::path::Path::new("traditional.ttc");
+        let sc = std::path::Path::new("generic.ttc");
+        assert_eq!(prefer_traditional("zh-Hant", Some(tc), Some(sc)), Some(tc));
+        for language in ["zh", "en", "ja", "it"] {
+            assert_eq!(prefer_traditional(language, Some(tc), Some(sc)), Some(sc));
+            assert_eq!(prefer_traditional(language, Some(tc), None), None);
+        }
+    }
+    #[test]
+    fn missing_tc_uses_generic_and_missing_both_returns_none() {
+        let sc = std::path::Path::new("generic.ttc");
+        assert_eq!(prefer_traditional("zh-Hant", None, Some(sc)), Some(sc));
+        assert_eq!(prefer_traditional("zh-Hant", None, None), None);
     }
 }

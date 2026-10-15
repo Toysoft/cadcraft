@@ -31,6 +31,8 @@ pub enum Preference {
     French,
     #[serde(rename = "zh")]
     Chinese,
+    #[serde(rename = "zh-Hant")]
+    TraditionalChinese,
     #[serde(rename = "it")]
     Italian,
     #[serde(rename = "ko")]
@@ -42,7 +44,7 @@ pub enum Preference {
 }
 
 impl Preference {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Auto,
         Self::English,
         Self::Ukrainian,
@@ -53,6 +55,7 @@ impl Preference {
         Self::Russian,
         Self::French,
         Self::Chinese,
+        Self::TraditionalChinese,
         Self::Italian,
         Self::Korean,
         Self::Swedish,
@@ -80,6 +83,7 @@ impl Preference {
             Self::Russian => "ru",
             Self::French => "fr",
             Self::Chinese => "zh",
+            Self::TraditionalChinese => "zh-Hant",
             Self::Italian => "it",
             Self::Korean => "ko",
             Self::Swedish => "sv",
@@ -99,6 +103,7 @@ impl Preference {
             Self::Russian => "Русский",
             Self::French => "Français",
             Self::Chinese => "简体中文",
+            Self::TraditionalChinese => "繁體中文",
             Self::Italian => "Italiano",
             Self::Korean => {
                 if crate::theme::shows_hangul(CURRENT.with(Cell::get)) {
@@ -132,6 +137,7 @@ impl Preference {
             Self::Russian => "ru",
             Self::French => "fr",
             Self::Chinese => "zh",
+            Self::TraditionalChinese => "zh-Hant",
             Self::Italian => "it",
             Self::Korean => "ko",
             Self::Swedish => "sv",
@@ -152,7 +158,7 @@ pub struct Language {
     catalog: OnceLock<Catalog<'static>>,
 }
 
-pub static LANGUAGES: [Language; 13] = [
+pub static LANGUAGES: [Language; 14] = [
     Language { code: "en", name: "English", source: "", plural: plural_en, plural_forms: 2, catalog: OnceLock::new() },
     Language {
         code: "uk", name: "Українська", source: include_str!("uk.tsv"), plural: plural_uk, plural_forms: 3, catalog: OnceLock::new()
@@ -187,13 +193,46 @@ pub static LANGUAGES: [Language; 13] = [
     // covers its glyphs, and the shell keeps egui's left-to-right run order. Six plural
     // forms: zero, one, two, few, many, other.
     Language { code: "ar", name: "العربية", source: include_str!("ar.tsv"), plural: plural_arabic, plural_forms: 6, catalog: OnceLock::new() },
+    Language {
+        code: "zh-Hant", name: "繁體中文", source: include_str!("zh-Hant.tsv"), plural: plural_zh, plural_forms: 1, catalog: OnceLock::new()
+    },
 ];
 
 /// BCP 47 and POSIX locale tags, including `uk-UA`, `uk_UA.UTF-8` and `pt_BR.UTF-8`.
 /// A catalog is chosen by the tag's primary language, so any `pt-*` tag selects `pt-BR`.
 pub fn locale_language(tag: &str) -> Option<&'static str> {
-    let primary = tag.trim().split(['-', '_', '.', '@']).next()?;
-    LANGUAGES.iter().find(|l| l.code.split('-').next().is_some_and(|p| p.eq_ignore_ascii_case(primary))).map(|l| l.code)
+    let locale = tag.trim().split(['.', '@']).next()?;
+    let mut subtags = locale.split(['-', '_']);
+    let primary = subtags.next()?;
+    if !primary.eq_ignore_ascii_case("zh") {
+        return LANGUAGES.iter().find(|l| l.code.split('-').next().is_some_and(|p| p.eq_ignore_ascii_case(primary))).map(|l| l.code);
+    }
+    // Explicit script wins over region. Hant and Traditional regions precede the generic Simplified catalog.
+    let mut script = None;
+    let mut traditional_region = false;
+    for subtag in subtags {
+        if subtag.is_empty() || !subtag.bytes().all(|c| c.is_ascii_alphanumeric()) {
+            return None;
+        }
+        if subtag.len() == 1 {
+            break; // BCP 47 extensions and private-use subtags do not change the script.
+        }
+        if subtag.len() == 4 && subtag.bytes().all(|c| c.is_ascii_alphabetic()) {
+            if script.is_some() {
+                return None;
+            }
+            script = Some(subtag);
+        } else if ["TW", "HK", "MO"].iter().any(|r| r.eq_ignore_ascii_case(subtag)) {
+            traditional_region = true;
+        }
+    }
+    match script {
+        Some(s) if s.eq_ignore_ascii_case("Hant") => Some("zh-Hant"),
+        Some(s) if s.eq_ignore_ascii_case("Hans") => Some("zh"),
+        Some(_) => None,
+        None if traditional_region => Some("zh-Hant"),
+        None => Some("zh"),
+    }
 }
 
 thread_local! {
@@ -314,6 +353,10 @@ pub fn plural_arabic(n: u64) -> usize {
         (_, 11..=99) => 4,
         _ => 5,
     }
+}
+
+fn plural_zh(_: u64) -> usize {
+    0
 }
 
 fn plural_en(n: u64) -> usize {
