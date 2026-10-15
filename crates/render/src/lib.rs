@@ -89,6 +89,9 @@ pub struct DisplayList {
     /// Plots: outline-font glyphs that a plotter can write as text instead of drawing the
     /// filled outline primitive they stand for ([`PlotText::prim`]), in drawing order.
     pub texts: Vec<PlotText>,
+    /// Plots: raster images drawn as their placeholder (frame and diagonals), so output that can
+    /// place the picture draws it instead of those primitives.
+    pub images: Vec<PlotImage>,
     pub bounds: Bounds2,
     /// The paper sheet when the list was built for a layout (paper space); the UI draws the
     /// white sheet, its shadow and the printable-area outline from it.
@@ -114,6 +117,30 @@ pub struct PlotText {
     pub bounds: Bounds2,
     /// The glyph; its origin and em axes are in world coordinates.
     pub glyph: cadcraft_fonts::TextGlyph,
+}
+
+/// A raster image in a plot: where it sits and the placeholder primitives that stand for it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlotImage {
+    /// The placeholder: its first primitive (index in [`DisplayList::prims`]) and how many
+    /// follow ([`PlotImage::PRIMS`], or the pieces left after a viewport's clipping).
+    pub prim: u32,
+    pub prims: u32,
+    /// Lower-left corner and the image's full width and height vectors, in world coordinates.
+    pub origin: Vec2,
+    pub u: Vec2,
+    pub v: Vec2,
+    /// Clip polygon in world coordinates; empty: the whole image.
+    pub clip: Vec<Vec2>,
+    /// Seen through a viewport: the viewport's outline, which clips it too.
+    pub viewport: Vec<Vec2>,
+    /// The image file as the drawing names it.
+    pub path: String,
+}
+
+impl PlotImage {
+    /// Primitives of the placeholder: the frame and its two diagonals.
+    pub const PRIMS: u32 = 3;
 }
 
 impl PlotText {
@@ -593,6 +620,10 @@ fn append(dst: &mut DisplayList, src: DisplayList) {
         }
         t
     }));
+    dst.images.extend(src.images.into_iter().map(|mut i| {
+        i.prim += prims;
+        i
+    }));
     dst.pens.extend(src.pens);
     dst.bounds = dst.bounds.union(&src.bounds);
     dst.expanded = dst.expanded.saturating_add(src.expanded);
@@ -786,7 +817,18 @@ fn contents(b: &mut Builder, d: &Drawing, vp: &cadcraft_doc::Viewport, area: Bou
     // The contents are in paper units now: draw their pens before clipping.
     pen::apply(&mut sub.list, paper::paper_unit_mm(d));
     b.list.expanded = b.list.expanded.saturating_add(sub.list.expanded);
-    append_clipped(&mut b.list, &sub.list, clip);
+    let starts = append_clipped(&mut b.list, &sub.list, clip);
+    // Images keep the pieces of their placeholder that are left, clipped by the viewport too.
+    let outline = match clip {
+        Clip::Rect(r) => vec![r.min, Vec2::new(r.max.x, r.min.y), r.max, Vec2::new(r.min.x, r.max.y)],
+        Clip::Poly(c) => c.polygon().to_vec(),
+    };
+    for img in std::mem::take(&mut sub.list.images) {
+        let (Some(a), Some(z)) = (starts.get(img.prim as usize), starts.get((img.prim + img.prims) as usize)) else { continue };
+        if z > a {
+            b.list.images.push(PlotImage { prim: *a, prims: z - a, viewport: outline.clone(), ..img });
+        }
+    }
 }
 
 /// The clip region of a clipped viewport: the outline of its clip boundary entity, when that
@@ -807,8 +849,11 @@ enum Clip<'a> {
 }
 
 /// Append `src` to `dst`, clipped to `clip`.
-fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
+/// Returns where each source primitive's pieces start in `dst.prims` (and, last, the end).
+fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) -> Vec<u32> {
+    let mut starts = Vec::with_capacity(src.prims.len() + 1);
     for p in &src.prims {
+        starts.push(dst.prims.len() as u32);
         let pts = src.points(p);
         match (p.kind, clip) {
             (Kind::Polyline, Clip::Rect(rect)) => {
@@ -856,6 +901,8 @@ fn append_clipped(dst: &mut DisplayList, src: &DisplayList, clip: &Clip) {
             }
         }
     }
+    starts.push(dst.prims.len() as u32);
+    starts
 }
 
 fn push_raw(dst: &mut DisplayList, p: &DPrim, kind: Kind, pts: &[Vec2]) {
@@ -1191,9 +1238,36 @@ fn entity_parts(b: &mut Builder, ctx: &Ctx, e: &Entity) {
             let o = i.insert.xy();
             let u = i.u.xy() * i.size.x;
             let v = i.v.xy() * i.size.y;
+            let first = b.list.prims.len();
             b.polyline(ctx, rgb, lw, &[o, o + u, o + u + v, o + v, o]);
             b.polyline(ctx, rgb, lw, &[o, o + u + v]);
             b.polyline(ctx, rgb, lw, &[o + u, o + v]);
+            if b.plotting
+                && i.display & 1 != 0
+                && !i.path.is_empty()
+                && b.list.prims.len() == first + PlotImage::PRIMS as usize
+                && let Ok(prim) = u32::try_from(first)
+            {
+                let at = ctx.xf.apply(o);
+                // Clip boundary: pixel coordinates from the top-left corner, y down.
+                let px = |q: Vec2| ctx.xf.apply(o + i.u.xy() * q.x + i.v.xy() * (i.size.y - q.y));
+                let clip = match i.clip.as_slice() {
+                    _ if !(i.clipping && i.display & 4 != 0) => Vec::new(),
+                    [a, c] => vec![px(*a), px(Vec2::new(c.x, a.y)), px(*c), px(Vec2::new(a.x, c.y))],
+                    pts if pts.len() >= 3 => pts.iter().map(|q| px(*q)).collect(),
+                    _ => Vec::new(),
+                };
+                b.list.images.push(PlotImage {
+                    prim,
+                    prims: PlotImage::PRIMS,
+                    origin: at,
+                    u: ctx.xf.apply(o + u) - at,
+                    v: ctx.xf.apply(o + v) - at,
+                    clip,
+                    viewport: Vec::new(),
+                    path: i.path.clone(),
+                });
+            }
         }
         EntityKind::Table(t) => table(b, ctx, t, rgb, lw),
         EntityKind::Tolerance(t) => tolerance::draw(b, ctx, e, t, lw, tol),

@@ -83,6 +83,9 @@ pub struct PdfOptions {
     /// Plot objects with their transparency (PDF alpha). `None` = the page setup's "Plot
     /// transparency" (off for model space).
     pub plot_transparency: Option<bool>,
+    /// Folder raster images with a relative (or not found) path are looked for in: the
+    /// drawing's folder. Images that cannot be read plot as their placeholder.
+    pub image_dir: Option<String>,
 }
 
 impl Default for PdfOptions {
@@ -107,6 +110,7 @@ impl Default for PdfOptions {
             margins: None,
             hyperlinks: true,
             plot_transparency: None,
+            image_dir: None,
         }
     }
 }
@@ -143,6 +147,7 @@ impl PdfOptions {
             margins: margins(v.get("margins")),
             hyperlinks: v.get("hyperlinks").and_then(Value::as_bool).unwrap_or(true),
             plot_transparency: v.get("plotTransparency").and_then(Value::as_bool),
+            image_dir: v.get("imageDir").and_then(Value::as_str).map(str::to_string),
         }
     }
 }
@@ -217,7 +222,7 @@ pub fn plot(d: &Drawing, space: &Space, opts: &Value) -> Result<Vec<u8>> {
                 let mut po = PdfOptions::from_json(&serde_json::json!({
                     "paper": pg.get("paper"), "landscape": pg.get("landscape"), "scale": pg.get("scale"),
                     "plotStyleTable": opts.get("plotStyleTable"), "lineweights": opts.get("lineweights"),
-                    "margins": opts.get("margins"), "text": opts.get("text"),
+                    "margins": opts.get("margins"), "text": opts.get("text"), "imageDir": opts.get("imageDir"),
                 }));
                 po.window = Some(w);
                 po.fit = Some(true);
@@ -601,6 +606,7 @@ fn content_stream(
     clip_pt: &Bounds2,
     layers: &[u32],
     texts: &std::collections::HashMap<u32, (usize, &cadcraft_render::PlotText)>,
+    images: &std::collections::HashMap<u32, (usize, &cadcraft_render::PlotImage)>,
 ) -> (String, Vec<u8>) {
     let marked: std::collections::HashSet<u32> = layers.iter().copied().collect();
     let white = Rgb(255, 255, 255);
@@ -630,7 +636,13 @@ fn content_stream(
     // The transparency (percent) marks are drawn with, and those used on the page.
     let mut alpha: u8 = 0;
     let mut alphas: Vec<u8> = Vec::new();
+    // The rest of a placeholder replaced by its image.
+    let mut skip = 0u32;
     for (i, p) in list.prims.iter().enumerate() {
+        if skip > 0 {
+            skip -= 1;
+            continue;
+        }
         let want = list.prim_layers.get(i).copied().filter(|l| marked.contains(l));
         let text = u32::try_from(i).ok().and_then(|i| texts.get(&i));
         if text_font.is_some() && (text.is_none() || want != layer) {
@@ -661,6 +673,12 @@ fn content_stream(
                 alphas.push(t);
             }
             alpha = t;
+        }
+        if let Some((n, img)) = u32::try_from(i).ok().and_then(|i| images.get(&i)) {
+            flush(&mut c, &mut pending);
+            image(&mut c, *n, img, map);
+            skip = img.prims.saturating_sub(1);
+            continue;
         }
         let w = f64::from(p.lw) * PT_PER_MM;
         let w = if w.is_finite() && w > 0.0 { w.min(100.0) } else { 0.0 };
@@ -759,6 +777,87 @@ fn content_stream(
     }
     c.push_str("Q\n");
     (c, alphas)
+}
+
+/// Draw image XObject `/Im<n>` over the unit square mapped onto `img`, clipped to its boundary.
+fn image(c: &mut String, n: usize, img: &cadcraft_render::PlotImage, map: &Map) {
+    c.push_str("q\n");
+    for outline in [&img.viewport, &img.clip] {
+        if outline.len() >= 3 {
+            for (i, q) in outline.iter().enumerate() {
+                pt(c, map.pt(*q));
+                c.push_str(if i == 0 { " m\n" } else { " l\n" });
+            }
+            c.push_str("h W n\n");
+        }
+    }
+    let o = map.pt(img.origin);
+    let u = map.pt(img.origin + img.u) - o;
+    let v = map.pt(img.origin + img.v) - o;
+    for (i, x) in [u.x, u.y, v.x, v.y, o.x, o.y].into_iter().enumerate() {
+        if i > 0 {
+            c.push(' ');
+        }
+        num(c, x);
+    }
+    let _ = writeln!(c, " cm\n/Im{n} Do\nQ");
+}
+
+/// The image file `path` names: as written, else in `dir` (relative paths, then the bare file
+/// name, as AutoCAD falls back to the drawing's folder).
+#[cfg(not(target_arch = "wasm32"))]
+fn find_image(path: &str, dir: Option<&str>) -> Option<std::path::PathBuf> {
+    use std::path::{Path, PathBuf};
+    let own = Path::new(path);
+    if own.is_file() {
+        return Some(own.to_path_buf());
+    }
+    let dir = Path::new(dir?);
+    let rel = path.replace('\\', "/");
+    let rel = rel.trim_start_matches("./");
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    [dir.join(rel), dir.join(name)].into_iter().find(|p: &PathBuf| p.is_file())
+}
+
+/// Largest image (pixels) embedded in a plot; larger ones keep the placeholder.
+const MAX_IMAGE_PIXELS: u64 = 64_000_000;
+
+/// The image XObject body for file `path` (8-bit RGB, with a soft mask object added first
+/// when the image has transparency), or `None` when it cannot be read.
+fn image_object(objs: &mut Objects, path: &str, dir: Option<&str>, compress: bool) -> Option<Vec<u8>> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (objs, path, dir, compress);
+        None
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let file = find_image(path, dir)?;
+        let img = image::ImageReader::open(file).ok()?.with_guessed_format().ok()?.decode().ok()?;
+        let (w, h) = (img.width(), img.height());
+        if w == 0 || h == 0 || u64::from(w) * u64::from(h) > MAX_IMAGE_PIXELS {
+            return None;
+        }
+        let rgba = img.to_rgba8();
+        let mut rgb = Vec::with_capacity(w as usize * h as usize * 3);
+        let mut alpha = Vec::with_capacity(w as usize * h as usize);
+        for px in rgba.pixels() {
+            rgb.extend_from_slice(&px.0[..3]);
+            alpha.push(px.0[3]);
+        }
+        let dict = format!(" /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceRGB /BitsPerComponent 8");
+        let smask = if alpha.iter().any(|a| *a < 255) {
+            let m = objs.add(stream(
+                &alpha,
+                compress,
+                &format!(" /Type /XObject /Subtype /Image /Width {w} /Height {h} /ColorSpace /DeviceGray /BitsPerComponent 8"),
+            ));
+            format!(" /SMask {m} 0 R")
+        } else {
+            String::new()
+        };
+        Some(stream(&rgb, compress, &format!("{dict}{smask}")))
+    }
 }
 
 /// The page resources' graphics states for transparencies `alphas` (percent): `/T<percent>`
@@ -897,10 +996,32 @@ fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptio
     let mut kids = Vec::new();
     // Page dictionaries are completed once the fonts are written: (page, its fonts, the rest).
     let mut page_dicts: Vec<(usize, Vec<usize>, String, String, String)> = Vec::new();
+    // Image XObjects shared by all pages, by file as the drawing names it: (name, object), or
+    // `None` when the file cannot be read.
+    let mut image_ids: std::collections::HashMap<&str, Option<(usize, usize)>> = std::collections::HashMap::new();
     for p in pages {
         let page = objs.reserve();
         let texts = fonts.texts(&p.list);
-        let (marks, alphas) = content_stream(&p.list, &p.map, &p.clip_pt, &p.layers, &texts);
+        let mut images = std::collections::HashMap::new();
+        let mut xobjects = String::new();
+        for img in &p.list.images {
+            let found = match image_ids.get(img.path.as_str()) {
+                Some(f) => *f,
+                None => {
+                    let n = image_ids.values().flatten().count();
+                    let f = image_object(&mut objs, &img.path, o.image_dir.as_deref(), true).map(|body| (n, objs.add(body)));
+                    image_ids.insert(img.path.as_str(), f);
+                    f
+                }
+            };
+            if let Some((n, id)) = found {
+                if !xobjects.contains(&format!("/Im{n} ")) {
+                    let _ = write!(xobjects, " /Im{n} {id} 0 R");
+                }
+                images.insert(img.prim, (n, img));
+            }
+        }
+        let (marks, alphas) = content_stream(&p.list, &p.map, &p.clip_pt, &p.layers, &texts, &images);
         let content = objs.add(stream(marks.as_bytes(), o.compress, ""));
         let mut used: Vec<usize> = texts.values().map(|(f, _)| *f).collect();
         used.sort_unstable();
@@ -931,7 +1052,11 @@ fn assemble(d: &Drawing, pages: &[SheetPage], fonts: &fonts::Fonts, o: &PdfOptio
         let mut mb = String::new();
         pt(&mut mb, p.media);
         let annots = if annots.is_empty() { String::new() } else { format!(" /Annots [{}]", refs(annots)) };
-        page_dicts.push((page, used, props, ext_gstates(&alphas), format!("/MediaBox [0 0 {mb}] /Contents {content} 0 R{annots}")));
+        let mut gstates = ext_gstates(&alphas);
+        if !xobjects.is_empty() {
+            let _ = write!(gstates, " /XObject <<{xobjects} >>");
+        }
+        page_dicts.push((page, used, props, gstates, format!("/MediaBox [0 0 {mb}] /Contents {content} 0 R{annots}")));
         kids.push(page);
     }
     let font_ids = if fonts.is_empty() { Vec::new() } else { fonts.write(&mut objs, o.compress) };

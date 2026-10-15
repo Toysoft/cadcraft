@@ -111,6 +111,12 @@ pub fn write_with(d: &Drawing, name: &str, opts: &SaveOptions) -> Result<Vec<u8>
 /// extents. Formats that are not images (DXF, DWG) ignore the window. The window is checked with
 /// [`check_window`].
 pub fn write_framed(d: &Drawing, name: &str, window: Option<Bounds2>) -> Result<Vec<u8>> {
+    write_framed_from(d, name, window, None)
+}
+
+/// Like [`write_framed`], with the folder a PDF's raster images are looked for in (the
+/// drawing's; see [`PdfOptions::image_dir`]).
+pub fn write_framed_from(d: &Drawing, name: &str, window: Option<Bounds2>, image_dir: Option<String>) -> Result<Vec<u8>> {
     // A drawing template (.dwt) is DWG content.
     if ext(name) == "dwt" {
         return write_framed(d, &format!("{name}.dwg"), None);
@@ -124,7 +130,7 @@ pub fn write_framed(d: &Drawing, name: &str, window: Option<Bounds2>) -> Result<
         "dxf" | "" | "dwg" => write_with(d, name, &SaveOptions::default()),
         "svg" => Ok(svg::export_window(d, &Space::Model, window).into_bytes()),
         "png" => png_framed(d, &Space::Model, 2400, 1600, window),
-        "pdf" => pdf::pdf(d, &Space::Model, &PdfOptions { compress: true, window, ..PdfOptions::default() }),
+        "pdf" => pdf::pdf(d, &Space::Model, &PdfOptions { compress: true, window, image_dir, ..PdfOptions::default() }),
         e => Err(IoError::Unsupported(e.to_string())),
     }
 }

@@ -809,6 +809,16 @@ fn run_plot(s: &mut Session, p: &Value, cmd: &str) -> Result<Value> {
         if let Some(w) = plot_window(s, p, cmd, &space)? {
             o.insert("window".into(), json!([[w.min.x, w.min.y], [w.max.x, w.max.y]]));
         }
+        // Raster images with relative paths are found next to the drawing.
+        if !o.contains_key("imageDir")
+            && let Some(dir) = s
+                .state()
+                .ok()
+                .and_then(|st| st.path.clone())
+                .and_then(|f| std::path::Path::new(&f).parent().map(|d| d.to_string_lossy().into_owned()))
+        {
+            o.insert("imageDir".into(), json!(if dir.is_empty() { ".".to_string() } else { dir }));
+        }
         // Without one, the plotter uses each sheet's page setup.
         match super::plotters::plot_transparency(s, p) {
             Some(t) => o.insert("plotTransparency".into(), json!(t)),

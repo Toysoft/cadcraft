@@ -224,7 +224,10 @@ fn export(s: &Session, out: &str) -> Result<(), String> {
 
 fn export_framed(s: &Session, out: &str, window: Option<Bounds2>) -> Result<(), String> {
     let d = s.doc().map_err(|e| e.to_string())?;
-    let bytes = cadcraft_io::write_framed(d, out, window).map_err(|e| e.to_string())?;
+    // Raster images with relative paths are found next to the drawing.
+    let dir = s.state().ok().and_then(|st| st.path.clone()).and_then(|f| std::path::Path::new(&f).parent().map(|p| p.to_string_lossy().into_owned()));
+    let dir = dir.map(|p| if p.is_empty() { ".".to_string() } else { p });
+    let bytes = cadcraft_io::write_framed_from(d, out, window, dir).map_err(|e| e.to_string())?;
     std::fs::write(out, &bytes).map_err(|e| format!("{out}: {e}"))?;
     eprintln!("wrote {out} ({} bytes)", bytes.len());
     if cadcraft_engine::cmd::file::drops_unknown(out) {
